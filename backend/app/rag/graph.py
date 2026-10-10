@@ -36,7 +36,7 @@ def build_sources(hits: list[Hit]) -> list[dict]:
 
 
 def _normalize(text: str) -> str:
-    return text.strip().replace("’", "'").rstrip(".").lower()
+    return text.strip().replace("\u2019", "'").rstrip(".").lower()
 
 
 def is_not_found(answer: str) -> bool:

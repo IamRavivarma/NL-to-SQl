@@ -20,7 +20,7 @@ def test_build_sources_dedupes_by_file_and_page_and_truncates_snippets():
 
 @pytest.mark.parametrize(
     "answer",
-    ["I couldn't find that in your documents.", "I couldn’t find that in your documents", "  i couldn't find that in your documents.  "],
+    ["I couldn't find that in your documents.", "I couldn\u2019t find that in your documents", "  i couldn't find that in your documents.  "],
 )
 def test_is_not_found_tolerates_apostrophes_case_and_period(answer):
     assert is_not_found(answer)

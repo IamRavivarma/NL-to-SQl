@@ -25,7 +25,7 @@ def test_docx_is_one_page():
 
 
 def test_txt_utf8_with_bom():
-    _, pages = load_pages("a.txt", "﻿Café menu".encode("utf-8"))
+    _, pages = load_pages("a.txt", "\ufeffCafé menu".encode("utf-8"))
     assert pages == [Page(text="Café menu", page_number=1)]
 
 
