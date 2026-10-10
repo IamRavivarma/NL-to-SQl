@@ -34,6 +34,16 @@ def test_txt_windows_1252_falls_back_without_crashing():
     assert "Caf" in pages[0].text and "menu" in pages[0].text
 
 
+@pytest.mark.parametrize("encoding", ["utf-16", "utf-16-be"])
+def test_txt_utf16_with_bom_is_decoded(encoding):
+    # Notepad's "Unicode" option saves UTF-16 with a byte-order mark.
+    content = "Refunds take ten days".encode(encoding)
+    if encoding == "utf-16-be":
+        content = b"\xfe\xff" + content
+    _, pages = load_pages("a.txt", content)
+    assert pages == [Page(text="Refunds take ten days", page_number=1)]
+
+
 @pytest.mark.parametrize("filename", ["data.csv", "notes", "image.png"])
 def test_unsupported_types_are_rejected(filename):
     with pytest.raises(DocumentLoadError, match="Unsupported file type"):

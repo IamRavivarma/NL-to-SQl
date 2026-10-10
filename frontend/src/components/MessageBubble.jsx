@@ -1,4 +1,5 @@
 import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 function SpeedBadge({ metrics }) {
   if (!metrics) return null;
@@ -47,8 +48,8 @@ export default function MessageBubble({ message }) {
         {waiting ? (
           <p className="animate-pulse text-slate-400">Searching your documents…</p>
         ) : (
-          <div className="prose prose-sm max-w-none [&_li]:ml-4 [&_ol]:list-decimal [&_p]:my-1 [&_ul]:list-disc">
-            <Markdown>{message.content}</Markdown>
+          <div className="prose prose-sm prose-slate max-w-none">
+            <Markdown remarkPlugins={[remarkGfm]}>{message.content}</Markdown>
           </div>
         )}
         {message.status === "error" && (

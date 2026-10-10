@@ -64,8 +64,10 @@ async def ingest_document(filename: str, content: bytes, store) -> StoredDocumen
         try:
             await run_in_threadpool(store.delete_document, document_id)
         except Exception:
-            logger.exception("Cleanup of partial chunks failed for document %s", document_id)
-        await document.delete()
+            # Keep the record: without it, any partial chunks would be orphaned and undeletable from the UI.
+            logger.exception("Cleanup of partial chunks failed for document %s; keeping its record", document_id)
+        else:
+            await document.delete()
         raise IngestionError("Could not process the document.") from exc
 
     return document

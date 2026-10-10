@@ -66,6 +66,9 @@ def _load_docx(content: bytes) -> str:
 
 
 def _decode_text(content: bytes) -> str:
+    if content.startswith((b"\xff\xfe", b"\xfe\xff")):
+        # UTF-16 with a byte-order mark (Notepad's "Unicode" option); the BOM picks the byte order.
+        return content.decode("utf-16")
     try:
         return content.decode("utf-8-sig")
     except UnicodeDecodeError:

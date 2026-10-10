@@ -38,6 +38,14 @@ async def test_ingest_rolls_back_when_vector_store_fails(mongo):
     assert len(store.deleted) == 1  # partial chunks cleaned up
 
 
+async def test_ingest_keeps_record_when_cleanup_also_fails(mongo):
+    # If partial chunks can't be removed, the record must stay so the user can see and delete the document.
+    store = FakeChunkStore(fail_on_add=True, fail_on_delete=True)
+    with pytest.raises(IngestionError, match="Could not process the document."):
+        await ingest_document("guide.pdf", make_pdf(["Some text"]), store)
+    assert await StoredDocument.count() == 1
+
+
 async def test_ingest_rejects_invalid_file_before_touching_db(mongo):
     store = FakeChunkStore()
     with pytest.raises(DocumentLoadError):
