@@ -1,10 +1,13 @@
 import json
 
+from beanie import PydanticObjectId
+from langchain_core.messages import AIMessage
+
 from app.api.deps import get_llm, get_store
 from app.main import app
 from app.models import Conversation, Message, StoredDocument
 from app.rag.prompts import NO_DOCUMENTS_ANSWER
-from tests.fakes import FailingChatModel, FakeChunkStore, fake_llm, hit
+from tests.fakes import FailingChatModel, FakeChunkStore, RecordingChatModel, fake_llm, hit
 
 
 def parse_sse(text: str) -> list[tuple[str, dict]]:
@@ -56,11 +59,13 @@ async def test_follow_up_reuses_conversation_and_sends_history(client):
     first = parse_sse((await client.post("/api/query", json={"question": "First?"})).text)
     conversation_id = first[0][1]["conversation_id"]
 
-    llm = fake_llm("Second answer.")
+    llm = RecordingChatModel(messages=iter([AIMessage(content="Second answer.")]))
     override(FakeChunkStore(hits=[hit("x")]), llm)
     second = parse_sse((await client.post("/api/query", json={"question": "Second?", "conversation_id": conversation_id})).text)
     assert second[0][1]["conversation_id"] == conversation_id
-    assert await Message.find(Message.conversation_id == first[0][1]["conversation_id"]).count() == 4
+    assert await Message.find(Message.conversation_id == PydanticObjectId(conversation_id)).count() == 4
+    prompt = [(m.type, m.content) for m in llm.received]
+    assert ("human", "First?") in prompt and ("ai", "First answer.") in prompt
 
 
 async def test_no_documents_short_circuits_without_llm(client):

@@ -40,6 +40,16 @@ def fake_llm(answer: str) -> GenericFakeChatModel:
     return GenericFakeChatModel(messages=iter([AIMessage(content=answer)]))
 
 
+class RecordingChatModel(GenericFakeChatModel):
+    """Fake chat model that also records the messages it was called with."""
+
+    received: list = []
+
+    def _stream(self, messages, *args, **kwargs):
+        self.received = list(messages)
+        yield from super()._stream(messages, *args, **kwargs)
+
+
 class FailingChatModel(GenericFakeChatModel):
     """Chat model whose every call raises, to exercise error paths."""
 
