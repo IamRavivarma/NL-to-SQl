@@ -78,6 +78,7 @@ async def stream_answer(
     question: str, history: list[tuple[str, str]], *, store, llm: BaseChatModel, model_name: str
 ) -> AsyncIterator[dict]:
     started = time.perf_counter()
+    generation_started = started
     first_token_at: float | None = None
     sources: list[dict] = []
     chunks_retrieved = 0
@@ -93,6 +94,7 @@ async def stream_answer(
                 hits = payload["retrieve"]["hits"]
                 chunks_retrieved = len(hits)
                 sources = build_sources(hits)
+                generation_started = time.perf_counter()
                 yield {"type": "meta", "sources": sources}
             elif "generate" in payload:
                 final = payload["generate"]["answer"]
@@ -112,7 +114,9 @@ async def stream_answer(
 
     usage = (final.usage_metadata if final is not None else None) or {}
     output_tokens = usage.get("output_tokens") or len(answer.split())
-    generation_seconds = max(finished - (first_token_at or started), 1e-3)
+    # From the LLM call's start, not the first visible token: reasoning models spend output tokens
+    # (counted in usage) before any answer text appears.
+    generation_seconds = max(finished - generation_started, 1e-3)
     yield {
         "type": "done",
         "answer": answer,

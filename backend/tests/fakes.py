@@ -1,3 +1,5 @@
+import time
+
 from langchain_core.documents import Document
 from langchain_core.language_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage
@@ -48,6 +50,16 @@ class RecordingChatModel(GenericFakeChatModel):
     def _stream(self, messages, *args, **kwargs):
         self.received = list(messages)
         yield from super()._stream(messages, *args, **kwargs)
+
+
+class SlowStartChatModel(GenericFakeChatModel):
+    """Fake chat model that pauses before its first token, like a model that reasons before answering."""
+
+    delay_seconds: float = 0.2
+
+    def _stream(self, *args, **kwargs):
+        time.sleep(self.delay_seconds)
+        yield from super()._stream(*args, **kwargs)
 
 
 class FailingChatModel(GenericFakeChatModel):

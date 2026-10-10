@@ -1,8 +1,9 @@
 import pytest
+from langchain_core.messages import AIMessage
 
 from app.rag.graph import build_sources, is_not_found, stream_answer
 from app.rag.prompts import NOT_FOUND_ANSWER
-from tests.fakes import FailingChatModel, FakeChunkStore, fake_llm, hit
+from tests.fakes import FailingChatModel, FakeChunkStore, SlowStartChatModel, fake_llm, hit
 
 
 async def collect(**kwargs):
@@ -50,6 +51,15 @@ async def test_stream_emits_meta_tokens_done_in_order():
     assert metrics["ttft_ms"] >= 0 and metrics["total_ms"] >= metrics["ttft_ms"]
     assert metrics["tokens_per_sec"] > 0
     assert store.queries == ["How long do refunds take?"]
+
+
+async def test_tokens_per_sec_counts_time_before_first_token():
+    # Reasoning models spend output tokens before the first visible token; that time must count.
+    llm = SlowStartChatModel(messages=iter([AIMessage(content="one two three four")]), delay_seconds=0.2)
+    events = await collect(question="Q?", history=[], store=FakeChunkStore(hits=[hit("x")]), llm=llm)
+    metrics = events[-1]["metrics"]
+    assert metrics["ttft_ms"] >= 200
+    assert metrics["tokens_per_sec"] <= 4 / 0.2  # 4 tokens over at least 0.2 s of generation
 
 
 async def test_not_found_answer_clears_sources():
