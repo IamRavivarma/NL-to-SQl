@@ -1,10 +1,18 @@
+import { ArrowUp, LoaderCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { getConversation, streamQuery } from "../services/api";
+import EmptyState from "./EmptyState";
 import MessageBubble from "./MessageBubble";
 
 const STREAMING_ID = "streaming";
 
-export default function ChatView({ conversationId, onConversationStarted, onAnswerFinished, onBusyChange }) {
+export default function ChatView({
+  conversationId,
+  hasDocuments,
+  onConversationStarted,
+  onAnswerFinished,
+  onBusyChange,
+}) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -52,9 +60,12 @@ export default function ChatView({ conversationId, onConversationStarted, onAnsw
     }
   }
 
-  async function handleSubmit(event) {
+  function handleSubmit(event) {
     event.preventDefault();
-    const question = input.trim();
+    ask(input.trim());
+  }
+
+  async function ask(question) {
     if (!question || busy) return;
 
     setInput("");
@@ -95,36 +106,52 @@ export default function ChatView({ conversationId, onConversationStarted, onAnsw
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex-1 space-y-4 overflow-y-auto p-6">
-        {loadError && <p className="text-sm text-red-600">{loadError}</p>}
-        {messages.length === 0 && !loadError && (
-          <div className="mt-20 text-center text-slate-500">
-            <p className="text-lg font-medium text-slate-700">Ask anything about your documents</p>
-            <p className="mt-1 text-sm">Upload a PDF, TXT or DOCX on the left, then ask a question.</p>
-          </div>
-        )}
-        {messages.map((message) => (
-          <MessageBubble key={message.id} message={message} />
-        ))}
-        <div ref={bottomRef} />
+      <div className="flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-3xl space-y-6 px-6 pb-8 pt-8">
+          {loadError && (
+            <p role="alert" className="text-sm text-red-600">
+              {loadError}
+            </p>
+          )}
+          {messages.length === 0 && !loadError && <EmptyState hasDocuments={hasDocuments} onPick={ask} />}
+          {messages.map((message) => (
+            <MessageBubble key={message.id} message={message} />
+          ))}
+          <div ref={bottomRef} />
+        </div>
       </div>
-      <form onSubmit={handleSubmit} className="flex gap-2 border-t border-slate-200 bg-white p-4">
-        <input
-          className="flex-1 rounded-lg border border-slate-300 px-3 py-2 focus:border-indigo-500 focus:outline-none"
-          placeholder="Ask a question about your documents…"
-          value={input}
-          maxLength={2000}
-          onChange={(e) => setInput(e.target.value)}
-          disabled={busy}
-        />
-        <button
-          type="submit"
-          disabled={busy || !input.trim()}
-          className="rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+      <div className="px-6 pb-6">
+        <form
+          onSubmit={handleSubmit}
+          className="mx-auto flex max-w-3xl items-center gap-2 rounded-2xl border border-line bg-surface p-2 pl-4 shadow-[0_8px_30px_-12px_rgba(23,26,44,0.25)] focus-within:border-accent/50"
         >
-          {busy ? "Answering…" : "Send"}
-        </button>
-      </form>
+          <label htmlFor="question" className="sr-only">
+            Your question
+          </label>
+          <input
+            id="question"
+            className="min-w-0 flex-1 bg-transparent py-2 text-[15px] placeholder:text-muted focus:outline-none"
+            placeholder={hasDocuments ? "Ask anything about your documents…" : "Upload a document to start asking questions"}
+            value={input}
+            maxLength={2000}
+            onChange={(e) => setInput(e.target.value)}
+            disabled={busy}
+            autoComplete="off"
+          />
+          <button
+            type="submit"
+            disabled={busy || !input.trim()}
+            aria-label={busy ? "Answering" : "Send question"}
+            className="grid size-10 shrink-0 place-items-center rounded-xl bg-accent text-white transition-colors hover:bg-accent-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:bg-line disabled:text-muted"
+          >
+            {busy ? (
+              <LoaderCircle className="size-5 animate-spin" aria-hidden="true" />
+            ) : (
+              <ArrowUp className="size-5" aria-hidden="true" />
+            )}
+          </button>
+        </form>
+      </div>
     </div>
   );
 }

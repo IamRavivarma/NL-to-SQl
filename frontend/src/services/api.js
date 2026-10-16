@@ -29,6 +29,15 @@ export const getConversation = (id) => request(`/api/conversations/${id}`);
 export const deleteConversation = (id) => request(`/api/conversations/${id}`, { method: "DELETE" });
 export const getStats = () => request("/api/stats");
 
+export async function checkHealth() {
+  try {
+    const response = await fetch(`${BASE_URL}/health`, { signal: AbortSignal.timeout(4000) });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 export function uploadDocument(file) {
   const form = new FormData();
   form.append("file", file);

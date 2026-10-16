@@ -1,16 +1,16 @@
+import { LoaderCircle, Upload } from "lucide-react";
 import { useState } from "react";
 import { uploadDocument } from "../services/api";
 
 export default function FileUpload({ onUploaded }) {
   const [status, setStatus] = useState(null);
   const [error, setError] = useState(null);
+  const [dragging, setDragging] = useState(false);
 
-  async function handleChange(event) {
-    const file = event.target.files[0];
-    event.target.value = "";
-    if (!file) return;
+  async function upload(file) {
+    if (!file || status) return;
     setError(null);
-    setStatus(`Processing ${file.name}…`);
+    setStatus(`Reading ${file.name}…`);
     try {
       await uploadDocument(file);
       onUploaded();
@@ -21,15 +21,48 @@ export default function FileUpload({ onUploaded }) {
     }
   }
 
+  function handleDrop(event) {
+    event.preventDefault();
+    setDragging(false);
+    upload(event.dataTransfer.files[0]);
+  }
+
   return (
-    <div className="rounded-lg border border-dashed border-slate-300 bg-white p-3">
-      <label className="block cursor-pointer text-sm font-medium text-indigo-600 hover:text-indigo-700">
-        + Upload PDF, TXT or DOCX
-        <input type="file" accept=".pdf,.txt,.docx" className="hidden" onChange={handleChange} disabled={!!status} />
+    <div>
+      <label
+        onDragOver={(event) => {
+          event.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={handleDrop}
+        className={`flex cursor-pointer flex-col items-center gap-1.5 rounded-xl border border-dashed px-4 py-5 text-center transition-colors focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-accent ${
+          dragging ? "border-accent bg-accent-soft" : "border-line bg-canvas hover:border-accent/50 hover:bg-accent-soft/60"
+        }`}
+      >
+        {status ? (
+          <LoaderCircle className="size-5 animate-spin text-accent" aria-hidden="true" />
+        ) : (
+          <Upload className="size-5 text-accent" aria-hidden="true" />
+        )}
+        <span className="text-sm font-medium text-ink">{status ?? "Drop a file or browse"}</span>
+        <span className="text-xs text-muted">PDF, TXT or DOCX up to 20 MB</span>
+        <input
+          type="file"
+          accept=".pdf,.txt,.docx"
+          className="sr-only"
+          disabled={!!status}
+          onChange={(event) => {
+            upload(event.target.files[0]);
+            event.target.value = "";
+          }}
+        />
       </label>
-      <p className="mt-1 text-xs text-slate-500">Max 20 MB</p>
-      {status && <p className="mt-2 text-xs text-slate-600">{status}</p>}
-      {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+      {error && (
+        <p role="alert" className="mt-2 text-xs leading-relaxed text-red-600">
+          {error}
+        </p>
+      )}
     </div>
   );
 }
