@@ -35,6 +35,15 @@ def build_sources(hits: list[Hit]) -> list[dict]:
     return sources
 
 
+# gpt-oss cites with fullwidth lenticular brackets; the app's citation format is [filename p.N].
+# Each bracket is one character, so translating streamed tokens one at a time is safe.
+_CITATION_BRACKETS = str.maketrans({"\u3010": "[", "\u3011": "]"})
+
+
+def _square_citations(text: str) -> str:
+    return text.translate(_CITATION_BRACKETS)
+
+
 def _normalize(text: str) -> str:
     return text.strip().replace("\u2019", "'").rstrip(".").lower()
 
@@ -100,7 +109,7 @@ async def stream_answer(
                 final = payload["generate"]["answer"]
         else:
             chunk, metadata = payload
-            text = chunk.content if isinstance(chunk.content, str) else ""
+            text = _square_citations(chunk.content) if isinstance(chunk.content, str) else ""
             if metadata.get("langgraph_node") == "generate" and text:
                 if first_token_at is None:
                     first_token_at = time.perf_counter()
@@ -108,7 +117,7 @@ async def stream_answer(
                 yield {"type": "token", "text": text}
 
     finished = time.perf_counter()
-    answer = "".join(parts) or (final.content if final is not None else "")
+    answer = "".join(parts) or _square_citations(final.content if final is not None else "")
     if is_not_found(answer):
         sources = []
 

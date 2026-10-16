@@ -22,12 +22,14 @@ async function request(path, options = {}) {
   return response.status === 204 ? null : response.json();
 }
 
+export const statsPath = (tzOffsetMinutes) => `/api/stats?tz_offset_minutes=${tzOffsetMinutes}`;
+
 export const listDocuments = () => request("/api/documents");
 export const deleteDocument = (id) => request(`/api/documents/${id}`, { method: "DELETE" });
 export const listConversations = () => request("/api/conversations");
 export const getConversation = (id) => request(`/api/conversations/${id}`);
 export const deleteConversation = (id) => request(`/api/conversations/${id}`, { method: "DELETE" });
-export const getStats = () => request("/api/stats");
+export const getStats = () => request(statsPath(new Date().getTimezoneOffset()));
 
 export async function checkHealth() {
   try {
@@ -46,8 +48,10 @@ export function uploadDocument(file) {
 
 export function createSseParser(onEvent) {
   let buffer = "";
-  return (text) => {
-    buffer += text.replace(/\r\n/g, "\n");
+  const feed = (text) => {
+    // SSE lines may end in CRLF, LF or a lone CR. A CR at the very end of a read may be the first
+    // half of a CRLF split across reads, so it stays in the buffer until the next read arrives.
+    buffer = (buffer + text).replace(/\r\n/g, "\n").replace(/\r(?!$)/g, "\n");
     let boundary;
     while ((boundary = buffer.indexOf("\n\n")) !== -1) {
       const block = buffer.slice(0, boundary);
@@ -61,6 +65,12 @@ export function createSseParser(onEvent) {
       if (data.length) onEvent(event, JSON.parse(data.join("\n")));
     }
   };
+  // At end of stream a trailing CR can no longer be half of a CRLF: treat it as a line ending.
+  feed.end = () => {
+    if (buffer.endsWith("\r")) buffer = `${buffer.slice(0, -1)}\n`;
+    feed("");
+  };
+  return feed;
 }
 
 export async function streamQuery({ question, conversationId, onEvent, signal }) {
@@ -84,4 +94,5 @@ export async function streamQuery({ question, conversationId, onEvent, signal })
     if (done) break;
     feed(value);
   }
+  feed.end();
 }

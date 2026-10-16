@@ -1,4 +1,7 @@
+from starlette.datastructures import UploadFile
+
 from app.api.deps import get_store
+from app.ingestion.loaders import MAX_FILE_BYTES
 from app.main import app
 from app.models import StoredDocument
 from tests.fakes import FakeChunkStore
@@ -30,6 +33,25 @@ async def test_upload_unsupported_type_returns_400(client):
     response = await client.post("/api/upload", files={"file": ("data.csv", b"a,b", "text/csv")})
     assert response.status_code == 400
     assert "Unsupported file type" in response.json()["detail"]
+
+
+async def test_upload_reads_at_most_the_size_limit_plus_one_byte(client, monkeypatch):
+    # An oversized upload must be rejected without reading the whole body into memory.
+    sizes = []
+    original_read = UploadFile.read
+
+    async def spy_read(self, size=-1):
+        sizes.append(size)
+        return await original_read(self, size)
+
+    monkeypatch.setattr(UploadFile, "read", spy_read)
+    use_store(FakeChunkStore())
+    response = await client.post(
+        "/api/upload", files={"file": ("big.txt", b"x" * (MAX_FILE_BYTES + 10), "text/plain")}
+    )
+    assert response.status_code == 400
+    assert "20 MB" in response.json()["detail"]
+    assert sizes == [MAX_FILE_BYTES + 1]
 
 
 async def test_upload_store_failure_returns_500_and_saves_nothing(client):

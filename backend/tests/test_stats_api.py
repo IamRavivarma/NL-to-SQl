@@ -13,6 +13,19 @@ async def test_stats_empty(client):
     assert body["per_question"] == [] and body["questions_per_day"] == [] and body["chunks_per_document"] == []
 
 
+async def test_questions_per_day_uses_the_browsers_time_zone(client):
+    conversation = Conversation(title="t")
+    await conversation.insert()
+    # 20:00 UTC on the 9th is 01:30 on the 10th in India (UTC+5:30, getTimezoneOffset() == -330).
+    late = datetime(2026, 10, 9, 20, tzinfo=timezone.utc)
+    await Message(conversation_id=conversation.id, role="user", content="q", created_at=late).insert()
+
+    utc = (await client.get("/api/stats")).json()["questions_per_day"]
+    india = (await client.get("/api/stats", params={"tz_offset_minutes": -330})).json()["questions_per_day"]
+    assert utc == [{"date": "2026-10-09", "count": 1}]
+    assert india == [{"date": "2026-10-10", "count": 1}]
+
+
 async def test_stats_aggregates_documents_questions_and_metrics(client):
     await StoredDocument(filename="a.pdf", file_type="pdf", size_bytes=1, page_count=1, chunk_count=10).insert()
     await StoredDocument(filename="b.txt", file_type="txt", size_bytes=1, page_count=1, chunk_count=5).insert()

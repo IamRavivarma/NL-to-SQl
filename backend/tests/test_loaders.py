@@ -5,32 +5,38 @@ from tests.files import make_docx, make_pdf
 
 
 def test_pdf_pages_keep_page_numbers_and_skip_blank_pages():
-    file_type, pages = load_pages("guide.pdf", make_pdf(["Intro to refunds", "", "Shipping takes 5 days"]))
+    file_type, pages, _ = load_pages("guide.pdf", make_pdf(["Intro to refunds", "", "Shipping takes 5 days"]))
     assert file_type == "pdf"
     assert [p.page_number for p in pages] == [1, 3]
     assert "refunds" in pages[0].text
     assert "Shipping" in pages[1].text
 
 
+def test_page_count_includes_trailing_blank_pages():
+    _, pages, page_count = load_pages("guide.pdf", make_pdf(["Only page with text", "", ""]))
+    assert len(pages) == 1
+    assert page_count == 3
+
+
 def test_uppercase_extension_is_accepted():
-    file_type, _ = load_pages("REPORT.PDF", make_pdf(["Quarterly numbers"]))
+    file_type, _, _ = load_pages("REPORT.PDF", make_pdf(["Quarterly numbers"]))
     assert file_type == "pdf"
 
 
 def test_docx_is_one_page():
-    file_type, pages = load_pages("notes.docx", make_docx(["First paragraph.", "Second paragraph."]))
+    file_type, pages, _ = load_pages("notes.docx", make_docx(["First paragraph.", "Second paragraph."]))
     assert file_type == "docx"
     assert len(pages) == 1 and pages[0].page_number == 1
     assert "Second paragraph." in pages[0].text
 
 
 def test_txt_utf8_with_bom():
-    _, pages = load_pages("a.txt", "\ufeffCafé menu".encode("utf-8"))
+    _, pages, _ = load_pages("a.txt", "\ufeffCafé menu".encode("utf-8"))
     assert pages == [Page(text="Café menu", page_number=1)]
 
 
 def test_txt_windows_1252_falls_back_without_crashing():
-    _, pages = load_pages("a.txt", "Café – menu".encode("cp1252"))
+    _, pages, _ = load_pages("a.txt", "Café – menu".encode("cp1252"))
     assert "Caf" in pages[0].text and "menu" in pages[0].text
 
 
@@ -40,7 +46,7 @@ def test_txt_utf16_with_bom_is_decoded(encoding):
     content = "Refunds take ten days".encode(encoding)
     if encoding == "utf-16-be":
         content = b"\xfe\xff" + content
-    _, pages = load_pages("a.txt", content)
+    _, pages, _ = load_pages("a.txt", content)
     assert pages == [Page(text="Refunds take ten days", page_number=1)]
 
 

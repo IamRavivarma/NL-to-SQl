@@ -62,6 +62,15 @@ async def test_tokens_per_sec_counts_time_before_first_token():
     assert metrics["tokens_per_sec"] <= 4 / 0.2  # 4 tokens over at least 0.2 s of generation
 
 
+async def test_fullwidth_citation_brackets_become_square_brackets():
+    # gpt-oss tends to cite with 【...】; the spec's format is [filename p.N].
+    store = FakeChunkStore(hits=[hit("Refunds take ten days.")])
+    events = await collect(question="Q?", history=[], store=store, llm=fake_llm("Ten days 【guide.pdf p.1】."))
+    streamed = "".join(e["text"] for e in events if e["type"] == "token")
+    assert streamed == "Ten days [guide.pdf p.1]."
+    assert events[-1]["answer"] == "Ten days [guide.pdf p.1]."
+
+
 async def test_not_found_answer_clears_sources():
     store = FakeChunkStore(hits=[hit("Unrelated text")])
     events = await collect(question="Who won the 1998 World Cup?", history=[], store=store, llm=fake_llm(NOT_FOUND_ANSWER))

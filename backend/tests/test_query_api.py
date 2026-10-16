@@ -4,6 +4,7 @@ from beanie import PydanticObjectId
 from langchain_core.messages import AIMessage
 
 from app.api.deps import get_llm, get_store
+from app.api.query import _events
 from app.main import app
 from app.models import Conversation, Message, StoredDocument
 from app.rag.prompts import NO_DOCUMENTS_ANSWER
@@ -86,6 +87,33 @@ async def test_llm_failure_emits_error_and_saves_error_message(client):
     assistant = await Message.find_one(Message.role == "assistant")
     assert assistant.status == "error"
     assert data["conversation_id"] == str(assistant.conversation_id)
+
+
+async def test_closing_the_stream_early_saves_the_partial_answer(client):
+    # A closed browser tab stops the stream mid-answer; the question must not be left unanswered.
+    await add_document()
+    conversation = Conversation(title="Q?")
+    await conversation.insert()
+    events = _events(conversation, "Q?", [], FakeChunkStore(hits=[hit("x")]), fake_llm("One two three four"))
+    assert (await anext(events)).startswith("event: meta")
+    assert (await anext(events)).startswith("event: token")
+    await events.aclose()
+
+    assistant = await Message.find_one(Message.role == "assistant")
+    assert assistant.status == "error"
+    assert assistant.content == "One"
+
+
+async def test_finished_stream_closed_afterwards_is_not_saved_twice(client):
+    await add_document()
+    conversation = Conversation(title="Q?")
+    await conversation.insert()
+    events = _events(conversation, "Q?", [], FakeChunkStore(hits=[hit("x")]), fake_llm("Done."))
+    async for chunk in events:
+        if chunk.startswith("event: done"):
+            break
+    await events.aclose()
+    assert await Message.find(Message.role == "assistant").count() == 1
 
 
 async def test_unknown_conversation_returns_404(client):

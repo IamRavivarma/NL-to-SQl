@@ -1,6 +1,7 @@
 from collections import Counter
+from datetime import timedelta
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from app.models import Message, StoredDocument
 
@@ -10,7 +11,12 @@ PER_QUESTION_LIMIT = 50
 
 
 @router.get("/stats")
-async def stats():
+async def stats(
+    tz_offset_minutes: int = Query(
+        0, ge=-14 * 60, le=12 * 60, description="The browser's Date.getTimezoneOffset(): minutes behind UTC"
+    ),
+):
+    local_shift = timedelta(minutes=-tz_offset_minutes)
     documents = await StoredDocument.find_all().to_list()
     questions = await Message.find(Message.role == "user").to_list()
     answered = (
@@ -19,7 +25,7 @@ async def stats():
         .to_list()
     )
 
-    per_day = Counter(m.created_at.date().isoformat() for m in questions)
+    per_day = Counter((m.created_at + local_shift).date().isoformat() for m in questions)
     return {
         "totals": {
             "documents": len(documents),

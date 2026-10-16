@@ -1,5 +1,7 @@
+import asyncio
 import logging
 
+import anyio
 from beanie import PydanticObjectId
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -81,11 +83,13 @@ async def query(request: QueryRequest, store=Depends(get_store), llm=Depends(get
 async def _events(conversation: Conversation, question: str, history, store, llm):
     conversation_id = str(conversation.id)
     partial: list[str] = []
+    saved = False
     try:
         if await StoredDocument.count() == 0:
             yield format_sse("meta", {"conversation_id": conversation_id, "sources": []})
             yield format_sse("token", {"text": NO_DOCUMENTS_ANSWER})
             message = await _save_assistant(conversation, NO_DOCUMENTS_ANSWER, [], None, "complete")
+            saved = True
             yield format_sse("done", {"message_id": str(message.id), "metrics": None, "sources": []})
             return
 
@@ -99,9 +103,20 @@ async def _events(conversation: Conversation, question: str, history, store, llm
                 message = await _save_assistant(
                     conversation, event["answer"], event["sources"], event["metrics"], "complete"
                 )
+                saved = True
                 yield format_sse(
                     "done", {"message_id": str(message.id), "metrics": event["metrics"], "sources": event["sources"]}
                 )
+    except (GeneratorExit, asyncio.CancelledError):
+        # The client went away mid-answer (e.g. closed the tab). Keep what was streamed so the
+        # conversation doesn't show an unanswered question; shield the save from the cancellation.
+        if not saved:
+            with anyio.CancelScope(shield=True):
+                try:
+                    await _save_assistant(conversation, "".join(partial), [], None, "error")
+                except Exception:
+                    logger.exception("Could not save the interrupted answer for conversation %s", conversation_id)
+        raise
     except Exception:
         logger.exception("Answering failed for conversation %s", conversation_id)
         try:

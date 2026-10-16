@@ -36,14 +36,14 @@ def split_pages(pages: list[Page]) -> list[Chunk]:
 
 async def ingest_document(filename: str, content: bytes, store) -> StoredDocument:
     """Validate, split, embed and store a document. All-or-nothing: on failure nothing is left behind."""
-    file_type, pages = load_pages(filename, content)
+    file_type, pages, page_count = load_pages(filename, content)
     chunks = split_pages(pages)
 
     document = StoredDocument(
         filename=filename,
         file_type=file_type,
         size_bytes=len(content),
-        page_count=max(page.page_number for page in pages),
+        page_count=page_count,
         chunk_count=len(chunks),
     )
     await document.insert()

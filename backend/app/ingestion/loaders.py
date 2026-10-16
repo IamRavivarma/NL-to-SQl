@@ -26,7 +26,8 @@ def detect_file_type(filename: str) -> str:
     return file_type
 
 
-def load_pages(filename: str, content: bytes) -> tuple[str, list[Page]]:
+def load_pages(filename: str, content: bytes) -> tuple[str, list[Page], int]:
+    """Return the file type, the pages that contain text, and the total page count (blank pages included)."""
     file_type = detect_file_type(filename)
     if not content:
         raise DocumentLoadError("The file is empty.")
@@ -40,10 +41,11 @@ def load_pages(filename: str, content: bytes) -> tuple[str, list[Page]]:
     else:
         pages = [Page(text=_decode_text(content), page_number=1)]
 
+    page_count = len(pages)
     pages = [page for page in pages if page.text.strip()]
     if not pages:
         raise DocumentLoadError("No readable text found — scanned PDFs aren't supported.")
-    return file_type, pages
+    return file_type, pages, page_count
 
 
 def _load_pdf(content: bytes) -> list[Page]:
