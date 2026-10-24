@@ -30,7 +30,7 @@ async def test_upload_pdf_returns_201_and_lists_document(client):
 
 async def test_upload_unsupported_type_returns_400(client):
     use_store(FakeChunkStore())
-    response = await client.post("/api/upload", files={"file": ("data.csv", b"a,b", "text/csv")})
+    response = await client.post("/api/upload", files={"file": ("old.xls", b"a,b", "application/vnd.ms-excel")})
     assert response.status_code == 400
     assert "Unsupported file type" in response.json()["detail"]
 

@@ -38,8 +38,8 @@ export default function EmptyState({ hasDocuments, onPick }) {
         <div className="mt-6 flex items-start gap-3 rounded-xl border border-dashed border-line bg-surface p-4 text-muted">
           <FileUp className="mt-0.5 size-5 shrink-0 text-accent" aria-hidden="true" />
           <p className="text-sm leading-relaxed">
-            Upload a PDF, TXT or DOCX in the sidebar. Once it's processed, ask anything about it here and every
-            answer will point to the page it came from.
+            Upload a PDF, Word, text, CSV or Excel file in the sidebar. Once it's processed, ask anything about it
+            here and every answer will point to the page or sheet it came from.
           </p>
         </div>
       )}

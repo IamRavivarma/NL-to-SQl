@@ -1,7 +1,9 @@
+from datetime import datetime
+
 import pytest
 
 from app.ingestion.loaders import MAX_FILE_BYTES, DocumentLoadError, Page, load_pages
-from tests.files import make_docx, make_pdf
+from tests.files import make_docx, make_pdf, make_xlsx
 
 
 def test_pdf_pages_keep_page_numbers_and_skip_blank_pages():
@@ -50,7 +52,66 @@ def test_txt_utf16_with_bom_is_decoded(encoding):
     assert pages == [Page(text="Refunds take ten days", page_number=1)]
 
 
-@pytest.mark.parametrize("filename", ["data.csv", "notes", "image.png"])
+def test_csv_rows_carry_their_column_names():
+    content = b"Name,Department,Salary\nAlice,Sales,52000\nBob,,48000\n"
+    file_type, pages, page_count = load_pages("staff.csv", content)
+    assert file_type == "csv"
+    assert page_count == 1
+    assert pages == [
+        Page(text="Name: Alice | Department: Sales | Salary: 52000\nName: Bob | Salary: 48000", page_number=1)
+    ]
+
+
+def test_csv_semicolon_delimiter_is_detected():
+    # Excel in many European locales saves CSV with semicolons.
+    _, pages, _ = load_pages("staff.csv", "Name;City\nZoë;Paris\n".encode("cp1252"))
+    assert pages[0].text == "Name: Zoë | City: Paris"
+
+
+def test_csv_blank_header_gets_a_column_number():
+    _, pages, _ = load_pages("a.csv", b"Name,\nAlice,VIP\n")
+    assert pages[0].text == "Name: Alice | Column 2: VIP"
+
+
+def test_csv_with_only_a_header_is_rejected():
+    with pytest.raises(DocumentLoadError, match="No data rows found"):
+        load_pages("a.csv", b"Name,City\n")
+
+
+def test_xlsx_sheets_are_pages():
+    content = make_xlsx(
+        {
+            "Staff": [["Name", "Salary", "Joined"], ["Alice", 52000.0, datetime(2024, 3, 1)], ["Bob", 48000.5, None]],
+            "Empty": [],
+            "Offices": [["City"], ["Paris"]],
+        }
+    )
+    file_type, pages, page_count = load_pages("company.xlsx", content)
+    assert file_type == "xlsx"
+    assert page_count == 3
+    assert pages == [
+        Page(text="Sheet: Staff\nName: Alice | Salary: 52000 | Joined: 2024-03-01\nName: Bob | Salary: 48000.5", page_number=1),
+        Page(text="Sheet: Offices\nCity: Paris", page_number=3),
+    ]
+
+
+def test_xlsx_header_is_the_first_non_empty_row():
+    content = make_xlsx({"Report": [[None, None], ["Item", "Qty"], ["Pens", 3]]})
+    _, pages, _ = load_pages("report.xlsx", content)
+    assert pages[0].text == "Sheet: Report\nItem: Pens | Qty: 3"
+
+
+def test_xlsx_without_data_rows_is_rejected():
+    with pytest.raises(DocumentLoadError, match="No data rows found"):
+        load_pages("empty.xlsx", make_xlsx({"Sheet1": [["Only", "Headers"]]}))
+
+
+def test_corrupt_xlsx_is_rejected():
+    with pytest.raises(DocumentLoadError, match="Could not read"):
+        load_pages("broken.xlsx", b"not a zip file")
+
+
+@pytest.mark.parametrize("filename", ["old.xls", "notes", "image.png"])
 def test_unsupported_types_are_rejected(filename):
     with pytest.raises(DocumentLoadError, match="Unsupported file type"):
         load_pages(filename, b"hello")

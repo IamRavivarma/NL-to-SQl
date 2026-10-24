@@ -46,10 +46,10 @@ export default function FileUpload({ onUploaded }) {
           <Upload className="size-5 text-accent" aria-hidden="true" />
         )}
         <span className="text-sm font-medium text-ink">{status ?? "Drop a file or browse"}</span>
-        <span className="text-xs text-muted">PDF, TXT or DOCX up to 20 MB</span>
+        <span className="text-xs text-muted">PDF, TXT, DOCX, CSV or XLSX up to 20 MB</span>
         <input
           type="file"
-          accept=".pdf,.txt,.docx"
+          accept=".pdf,.txt,.docx,.csv,.xlsx"
           className="sr-only"
           disabled={!!status}
           onChange={(event) => {

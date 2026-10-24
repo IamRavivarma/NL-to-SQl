@@ -5,6 +5,8 @@ const TYPE_TINT = {
   pdf: "bg-rose-50 text-rose-600",
   docx: "bg-sky-50 text-sky-600",
   txt: "bg-slate-100 text-slate-600",
+  csv: "bg-emerald-50 text-emerald-600",
+  xlsx: "bg-emerald-50 text-emerald-600",
 };
 
 export default function DocumentList({ documents, onDelete }) {

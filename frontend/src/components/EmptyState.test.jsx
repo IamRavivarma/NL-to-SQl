@@ -15,6 +15,6 @@ describe("EmptyState", () => {
   it("asks for an upload instead of suggesting questions when there are no documents", () => {
     const html = renderToStaticMarkup(<EmptyState hasDocuments={false} onPick={() => {}} />);
     expect(html).not.toContain("<button");
-    expect(html).toContain("Upload a PDF, TXT or DOCX");
+    expect(html).toContain("Upload a PDF, Word, text, CSV or Excel file");
   });
 });
