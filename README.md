@@ -6,6 +6,49 @@ Upload PDF, TXT or DOCX documents and ask questions about them in plain English.
 
 ![Dashboard](docs/screenshots/dashboard.png)
 
+## Quick start
+
+The project is already set up (dependencies installed, `backend/.env` filled in), so starting it only needs two terminals.
+
+**Terminal 1: backend**
+```powershell
+cd "C:\Storage\PROJECTS\College\NL to SQL\backend"
+.venv\Scripts\python.exe -m uvicorn app.main:app --port 8000
+```
+
+**Terminal 2: frontend**
+```powershell
+cd "C:\Storage\PROJECTS\College\NL to SQL\frontend"
+npm run dev
+```
+
+Open **http://localhost:5173**. Keep both terminals open while using the app; press `Ctrl+C` in each to stop it.
+
+If port 8000 is already used by another app, run the backend with `--port 8001` and start the frontend with:
+```powershell
+$env:VITE_API_BASE_URL="http://localhost:8001"; npm run dev
+```
+
+On a new computer, follow [Setup](#setup) first.
+
+## What was done in this project
+
+In simple terms, this is a "chat with your documents" app: you upload files, ask questions, and the AI answers using only what is written in those files, showing the page it found the answer on.
+
+1. **Reading documents.** The backend extracts text page by page from PDF, TXT and Word files and cuts it into small overlapping pieces (chunks).
+2. **Making text searchable by meaning.** Each chunk is turned into a list of 384 numbers (an *embedding*) by a small AI model that runs on your own computer. Chunks with similar meaning get similar numbers, so "holidays" can match "annual leave".
+3. **Storing it in the cloud.** Chunks, numbers, file names and page numbers are saved in MongoDB Atlas, which can find the closest chunks to a question (Vector Search).
+4. **Answering questions.** A LangGraph workflow finds the 4 most relevant chunks, then sends them with the question to a fast AI model on Groq. The model is told to answer only from those chunks, cite them as `[file p.N]`, and say *"I couldn't find that in your documents."* when the answer isn't there.
+5. **Live streaming.** The answer appears in the browser word by word as it is generated.
+6. **Web interface.** A React page with drag-and-drop upload, a document list, saved conversations, clickable source chips that show the exact excerpt, and a dashboard with speed and usage charts.
+7. **Testing.** 61 backend tests and 17 frontend tests, plus a full end-to-end check against the real Atlas database and Groq.
+
+Problems solved along the way:
+- Groq retired the Llama 3 model named in the brief, so the app uses `openai/gpt-oss-120b`, and the model is now a setting.
+- The speed chart first showed impossible numbers because the model "thinks" before writing; speed is now measured from the start of generation.
+- The network blocked Atlas's usual address lookup, so the app uses Atlas's direct server address.
+- A failed upload could leave leftover pieces in the database; uploads are now all-or-nothing.
+
 ## Features
 
 - **Document upload** — PDF, TXT (UTF-8, UTF-16, Windows-1252) and DOCX up to 20 MB, by drag-and-drop or file picker. Uploads are all-or-nothing: a failed upload never leaves half a document behind.
