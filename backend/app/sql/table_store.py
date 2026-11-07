@@ -46,23 +46,40 @@ def sanitize_identifier(name: str, fallback: str) -> str:
     return f"t_{cleaned}" if cleaned[0].isdigit() else cleaned
 
 
+def _fits_sqlite_integer(value: int) -> bool:
+    return -(2**63) <= value < 2**63
+
+
 def _is_int_text(value: str) -> bool:
     # Leading zeros ("007", phone numbers, codes) are identifiers, not numbers.
-    return bool(_INTEGER.fullmatch(value)) and not (len(value.lstrip("+-")) > 1 and value.lstrip("+-")[0] == "0")
+    digits = value.lstrip("+-")
+    return (
+        bool(_INTEGER.fullmatch(value))
+        and not (len(digits) > 1 and digits[0] == "0")
+        and _fits_sqlite_integer(int(value))
+    )
 
 
 def infer_type(values: list) -> str:
     present = [value for value in values if value is not None]
     if not present or any(isinstance(value, bool) for value in present):
         return "TEXT"
-    if all(isinstance(value, int) or (isinstance(value, str) and _is_int_text(value.strip())) for value in present):
-        return "INTEGER"
     if all(
-        isinstance(value, (int, float)) or (isinstance(value, str) and _NUMBER.fullmatch(value.strip()))
+        (isinstance(value, int) and _fits_sqlite_integer(value))
+        or (isinstance(value, str) and _is_int_text(value.strip()))
         for value in present
     ):
+        return "INTEGER"
+    if all(isinstance(value, (int, float)) or (isinstance(value, str) and _is_real_text(value.strip())) for value in present):
         return "REAL"
     return "TEXT"
+
+
+def _is_real_text(value: str) -> bool:
+    # Whole-number text that isn't a safe integer ("007", 20-digit ids) is an identifier: keep every digit as text.
+    if _INTEGER.fullmatch(value):
+        return _is_int_text(value)
+    return bool(_NUMBER.fullmatch(value))
 
 
 def _convert(value, column_type: str):

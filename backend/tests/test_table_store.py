@@ -41,6 +41,7 @@ def test_sanitize_identifier(name, expected):
         ([52000, 48000.5], "REAL"),
         ([3, 4], "INTEGER"),
         (["12", "abc"], "TEXT"),
+        (["007", "012"], "TEXT"),
         ([True, False], "TEXT"),
         ([None, None], "TEXT"),
     ],
@@ -134,3 +135,10 @@ def test_sql_errors_carry_the_sqlite_message(tables):
     tables.create_tables("doc1", "staff.csv", [staff_table()])
     with pytest.raises(SqlError, match="no such column: age"):
         tables.run_select("SELECT age FROM staff")
+
+
+def test_numbers_too_big_for_sqlite_integers_are_kept_as_text(tables):
+    big = "12345678901234567890123"
+    tables.create_tables("doc1", "ids.csv", [Table(sheet=None, page=1, header=["Id"], rows=[[big], ["7"]])])
+    assert tables.catalog()[0].columns[0]["type"] == "TEXT"
+    assert tables.run_select("SELECT id FROM ids").rows == [[big], ["7"]]

@@ -42,7 +42,7 @@ In simple terms, this is a "chat with your documents" app: you upload files, ask
 5. **Natural language to SQL.** Spreadsheets (CSV/Excel) are also loaded into SQL tables. For a question about them ("total revenue in Q2?"), the AI writes a SQL query, the app runs it read-only, and the chat shows the **SQL query and its results table** above the answer, so totals, counts and "top 5" questions are exact. For PDF, Word and text questions the chat shows the real **MongoDB search query** and the passages it found.
 6. **Live streaming.** The answer appears in the browser word by word as it is generated.
 7. **Web interface.** A React page with drag-and-drop upload, a document list, saved conversations, clickable source chips that show the exact excerpt, and a dashboard with speed and usage charts.
-8. **Testing.** 123 backend tests and 22 frontend tests, plus a full end-to-end check against the real Atlas database and Groq.
+8. **Testing.** 125 backend tests and 22 frontend tests, plus a full end-to-end check against the real Atlas database and Groq.
 
 Problems solved along the way:
 - Groq retired the Llama 3 model named in the brief, so the app uses `openai/gpt-oss-120b`, and the model is now a setting.
@@ -151,7 +151,7 @@ docs/            design spec, implementation plan, screenshots
 ## Tests
 
 ```powershell
-cd backend;  .venv\Scripts\python.exe -m pytest   # 123 tests; integration tests use <MONGODB_DB>_test, skipped without MONGODB_URI
+cd backend;  .venv\Scripts\python.exe -m pytest   # 125 tests; integration tests use <MONGODB_DB>_test, skipped without MONGODB_URI
 cd frontend; npm test                              # 22 tests
 ```
 
