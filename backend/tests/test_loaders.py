@@ -2,7 +2,7 @@ from datetime import datetime
 
 import pytest
 
-from app.ingestion.loaders import MAX_FILE_BYTES, DocumentLoadError, Page, load_pages
+from app.ingestion.loaders import MAX_FILE_BYTES, DocumentLoadError, Page, Table, load_pages, load_tables
 from tests.files import make_docx, make_pdf, make_xlsx
 
 
@@ -109,6 +109,35 @@ def test_xlsx_without_data_rows_is_rejected():
 def test_corrupt_xlsx_is_rejected():
     with pytest.raises(DocumentLoadError, match="Could not read"):
         load_pages("broken.xlsx", b"not a zip file")
+
+
+def test_load_tables_csv():
+    assert load_tables("staff.csv", b"Name,Salary\nAlice,52000\n") == [
+        Table(sheet=None, page=1, header=["Name", "Salary"], rows=[["Alice", "52000"]])
+    ]
+
+
+def test_load_tables_xlsx_skips_empty_sheets():
+    content = make_xlsx(
+        {
+            "Staff": [["Name", None], ["Alice", "VIP"]],
+            "Empty": [],
+            "Offices": [["City"], ["Paris"]],
+        }
+    )
+    tables = load_tables("company.xlsx", content)
+    assert [(t.sheet, t.page) for t in tables] == [("Staff", 1), ("Offices", 3)]
+    assert tables[0].header == ["Name", "Column 2"]
+    assert tables[0].rows == [["Alice", "VIP"]]
+
+
+def test_load_tables_header_only_sheet_is_skipped():
+    content = make_xlsx({"Headers": [["Only", "Headers"]], "Data": [["City"], ["Paris"]]})
+    assert [t.sheet for t in load_tables("a.xlsx", content)] == ["Data"]
+
+
+def test_load_tables_pdf_is_empty():
+    assert load_tables("a.pdf", make_pdf(["Some text"])) == []
 
 
 @pytest.mark.parametrize("filename", ["old.xls", "notes", "image.png"])

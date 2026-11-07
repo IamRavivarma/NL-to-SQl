@@ -23,6 +23,14 @@ class Page:
     page_number: int  # 1-based
 
 
+@dataclass(frozen=True)
+class Table:
+    sheet: str | None  # Excel sheet name; None for CSV
+    page: int  # sheet position (1-based); 1 for CSV
+    header: list[str]
+    rows: list[list]  # raw cell values (str for CSV, typed for XLSX); None for empty cells
+
+
 def detect_file_type(filename: str) -> str:
     file_type = PurePath(filename or "").suffix.lower().lstrip(".")
     if file_type not in SUPPORTED_TYPES:
@@ -77,56 +85,94 @@ def _load_docx(content: bytes) -> str:
         raise DocumentLoadError("Could not read this DOCX file.") from exc
 
 
+def load_tables(filename: str, content: bytes) -> list[Table]:
+    """Parse a CSV or XLSX file into tables with at least one data row; other file types have none."""
+    file_type = detect_file_type(filename)
+    if file_type == "csv":
+        tables = [_parse_table(_read_csv_rows(content), sheet=None, page=1)]
+    elif file_type == "xlsx":
+        tables = _read_xlsx_tables(content)
+    else:
+        return []
+    return [table for table in tables if table.rows]
+
+
 def _load_csv(content: bytes) -> str:
+    return "\n".join(_table_lines(_parse_table(_read_csv_rows(content), sheet=None, page=1)))
+
+
+def _load_xlsx(content: bytes) -> list[Page]:
+    pages = []
+    for table in _read_xlsx_tables(content):
+        lines = _table_lines(table)
+        text = "\n".join([f"Sheet: {table.sheet}", *lines]) if lines else ""
+        pages.append(Page(text=text, page_number=table.page))
+    return pages
+
+
+def _read_csv_rows(content: bytes) -> list[list]:
     text = _decode_text(content)
     try:
         dialect = csv.Sniffer().sniff(text[:4096], delimiters=",;\t|")
     except csv.Error:
         dialect = csv.excel
     try:
-        rows = list(csv.reader(StringIO(text), dialect))
+        return list(csv.reader(StringIO(text), dialect))
     except csv.Error as exc:
         raise DocumentLoadError("Could not read this CSV file.") from exc
-    return "\n".join(_rows_to_lines(rows))
 
 
-def _load_xlsx(content: bytes) -> list[Page]:
+def _read_xlsx_tables(content: bytes) -> list[Table]:
+    """One table per worksheet, empty ones included, so page numbers match sheet positions."""
     try:
         workbook = openpyxl.load_workbook(BytesIO(content), read_only=True, data_only=True)
     except Exception as exc:
         raise DocumentLoadError("Could not read this Excel file.") from exc
     try:
-        pages = []
-        for number, sheet in enumerate(workbook.worksheets, start=1):
-            lines = _rows_to_lines(sheet.iter_rows(values_only=True))
-            text = "\n".join([f"Sheet: {sheet.title}", *lines]) if lines else ""
-            pages.append(Page(text=text, page_number=number))
-        return pages
+        return [
+            _parse_table(sheet.iter_rows(values_only=True), sheet=sheet.title, page=number)
+            for number, sheet in enumerate(workbook.worksheets, start=1)
+        ]
     finally:
         workbook.close()
 
 
-def _rows_to_lines(rows) -> list[str]:
-    """Turn table rows into "Column: value | Column: value" lines, so every chunk keeps the column names.
+def _parse_table(rows, *, sheet: str | None, page: int) -> Table:
+    """The first non-empty row is the header; empty rows are skipped and empty cells become None.
 
-    The first non-empty row is the header; empty cells and empty rows are skipped.
+    Blank header cells are named "Column N"; columns with a blank header and no values are dropped.
     """
-    header = None
-    lines = []
+    header: list[str] | None = None
+    data: list[list] = []
     for row in rows:
-        cells = [_cell_text(value) for value in row]
-        if not any(cells):
+        values = [None if _cell_text(value) == "" else value for value in row]
+        if not any(value is not None for value in values):
             continue
         if header is None:
-            header = [name or f"Column {i + 1}" for i, name in enumerate(cells)]
-            continue
-        pairs = [
-            f"{header[i] if i < len(header) else f'Column {i + 1}'}: {value}"
-            for i, value in enumerate(cells)
-            if value
-        ]
-        lines.append(" | ".join(pairs))
-    return lines
+            header = [_cell_text(value) for value in values]
+        else:
+            data.append(values)
+    if header is None:
+        return Table(sheet=sheet, page=page, header=[], rows=[])
+
+    width = max([len(header), *(len(row) for row in data)])
+    header = header + [""] * (width - len(header))
+    data = [row + [None] * (width - len(row)) for row in data]
+    keep = [i for i in range(width) if header[i] or any(row[i] is not None for row in data)]
+    return Table(
+        sheet=sheet,
+        page=page,
+        header=[header[i] or f"Column {i + 1}" for i in keep],
+        rows=[[row[i] for i in keep] for row in data],
+    )
+
+
+def _table_lines(table: Table) -> list[str]:
+    """Turn rows into "Column: value | Column: value" lines, so every chunk keeps the column names."""
+    return [
+        " | ".join(f"{name}: {_cell_text(value)}" for name, value in zip(table.header, row) if value is not None)
+        for row in table.rows
+    ]
 
 
 def _cell_text(value) -> str:
