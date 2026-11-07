@@ -160,4 +160,5 @@ cd frontend; npm test                              # 22 tests
 - [Design spec](docs/specs/2026-10-10-rag-assistant-design.md)
 - [Implementation plan](docs/plans/2026-10-10-rag-assistant-plan.md)
 
-The repository history also contains an earlier natural-language-to-SQL prototype (branch `worktree-nl-to-sql-implementation`, spec in `docs/specs/2026-08-09-nl-to-sql-dashboard-design.md`), which this RAG assistant replaced to match the project brief.
+- [Query panel (NL-to-SQL) design](docs/specs/2026-11-07-query-panel-design.md)
+- [Query panel implementation plan](docs/plans/2026-11-07-query-panel-plan.md)
