@@ -145,11 +145,11 @@ def _parse_table(rows, *, sheet: str | None, page: int) -> Table:
     header: list[str] | None = None
     data: list[list] = []
     for row in rows:
-        values = [None if _cell_text(value) == "" else value for value in row]
+        values = [None if cell_text(value) == "" else value for value in row]
         if not any(value is not None for value in values):
             continue
         if header is None:
-            header = [_cell_text(value) for value in values]
+            header = [cell_text(value) for value in values]
         else:
             data.append(values)
     if header is None:
@@ -170,12 +170,12 @@ def _parse_table(rows, *, sheet: str | None, page: int) -> Table:
 def _table_lines(table: Table) -> list[str]:
     """Turn rows into "Column: value | Column: value" lines, so every chunk keeps the column names."""
     return [
-        " | ".join(f"{name}: {_cell_text(value)}" for name, value in zip(table.header, row) if value is not None)
+        " | ".join(f"{name}: {cell_text(value)}" for name, value in zip(table.header, row) if value is not None)
         for row in table.rows
     ]
 
 
-def _cell_text(value) -> str:
+def cell_text(value) -> str:
     if value is None:
         return ""
     if isinstance(value, float) and value.is_integer():
