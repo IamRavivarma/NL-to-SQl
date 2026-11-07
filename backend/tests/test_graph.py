@@ -37,7 +37,8 @@ async def test_stream_emits_meta_tokens_done_in_order():
         question="How long do refunds take?", history=[], store=store, llm=fake_llm("Ten days [guide.pdf p.1].")
     )
 
-    assert events[0] == {"type": "meta", "sources": [{"filename": "guide.pdf", "page": 1, "snippet": "Refunds take ten days."}]}
+    assert events[0]["type"] == "meta"
+    assert events[0]["sources"] == [{"filename": "guide.pdf", "page": 1, "snippet": "Refunds take ten days."}]
     tokens = [e["text"] for e in events if e["type"] == "token"]
     assert "".join(tokens) == "Ten days [guide.pdf p.1]."
     done = events[-1]
@@ -80,7 +81,7 @@ async def test_not_found_answer_clears_sources():
 
 async def test_no_hits_still_answers():
     events = await collect(question="Anything?", history=[], store=FakeChunkStore(hits=[]), llm=fake_llm(NOT_FOUND_ANSWER))
-    assert events[0] == {"type": "meta", "sources": []}
+    assert events[0]["type"] == "meta" and events[0]["sources"] == []
     assert events[-1]["type"] == "done"
 
 

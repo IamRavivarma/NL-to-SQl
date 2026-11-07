@@ -8,7 +8,7 @@ from app.api.query import _events
 from app.main import app
 from app.models import Conversation, Message, StoredDocument
 from app.rag.prompts import NO_DOCUMENTS_ANSWER
-from tests.fakes import FailingChatModel, FakeChunkStore, RecordingChatModel, fake_llm, hit
+from tests.fakes import FailingChatModel, FakeChunkStore, RecordingChatModel, fake_llm, hit, scripted_llm
 
 
 def parse_sse(text: str) -> list[tuple[str, dict]]:
@@ -126,3 +126,27 @@ async def test_blank_or_too_long_question_returns_422(client):
     override(FakeChunkStore(), fake_llm("x"))
     assert (await client.post("/api/query", json={"question": "   "})).status_code == 422
     assert (await client.post("/api/query", json={"question": "x" * 2001})).status_code == 422
+
+
+async def test_queries_are_streamed_saved_and_returned_with_the_conversation(client):
+    await add_document()
+    override(FakeChunkStore(hits=[hit("Refunds take ten days.")]), fake_llm("Ten days [guide.pdf p.1]."))
+
+    events = parse_sse((await client.post("/api/query", json={"question": "How long do refunds take?"})).text)
+    meta, done = events[0][1], events[-1][1]
+    assert [q["kind"] for q in meta["queries"]] == ["mongodb"]
+    assert done["queries"] == meta["queries"]
+
+    conversation = (await client.get(f"/api/conversations/{meta['conversation_id']}")).json()
+    assert conversation["messages"][1]["queries"] == meta["queries"]
+    assert conversation["messages"][0]["queries"] == []
+
+
+async def test_question_about_an_uploaded_csv_is_answered_with_sql(client):
+    override(FakeChunkStore(), scripted_llm('{"sql": "SELECT SUM(salary) AS total FROM staff"}', "100000 in total."))
+    await client.post("/api/upload", files={"file": ("staff.csv", b"Name,Salary\nA,60000\nB,40000\n", "text/csv")})
+
+    events = parse_sse((await client.post("/api/query", json={"question": "Total salary?"})).text)
+    [run] = events[0][1]["queries"]
+    assert (run["kind"], run["rows"]) == ("sql", [[100000]])
+    assert events[0][1]["sources"] == [{"filename": "staff.csv", "page": 1, "snippet": "Rows returned by the SQL query"}]

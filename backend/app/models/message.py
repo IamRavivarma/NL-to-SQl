@@ -28,6 +28,8 @@ class Message(Document):
     content: str
     sources: list[Source] = Field(default_factory=list)
     metrics: Metrics | None = None
+    # The database queries behind the answer (SQL over spreadsheets, or the MongoDB vector search), as shown in the UI.
+    queries: list[dict] = Field(default_factory=list)
     status: Literal["complete", "error"] = "complete"
     created_at: datetime = Field(default_factory=utcnow)
 

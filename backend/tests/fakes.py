@@ -52,6 +52,20 @@ class RecordingChatModel(GenericFakeChatModel):
         yield from super()._stream(messages, *args, **kwargs)
 
 
+class ScriptedChatModel(GenericFakeChatModel):
+    """Fake chat model that gives `replies` in order, one per call, and records every call's messages."""
+
+    calls: list = []
+
+    def _generate(self, messages, *args, **kwargs):
+        self.calls = [*self.calls, list(messages)]
+        return super()._generate(messages, *args, **kwargs)
+
+
+def scripted_llm(*replies: str) -> ScriptedChatModel:
+    return ScriptedChatModel(messages=iter([AIMessage(content=reply) for reply in replies]))
+
+
 class SlowStartChatModel(GenericFakeChatModel):
     """Fake chat model that pauses before its first token, like a model that reasons before answering."""
 
