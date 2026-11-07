@@ -39,9 +39,10 @@ In simple terms, this is a "chat with your documents" app: you upload files, ask
 2. **Making text searchable by meaning.** Each chunk is turned into a list of 384 numbers (an *embedding*) by a small AI model that runs on your own computer. Chunks with similar meaning get similar numbers, so "holidays" can match "annual leave".
 3. **Storing it in the cloud.** Chunks, numbers, file names and page numbers are saved in MongoDB Atlas, which can find the closest chunks to a question (Vector Search).
 4. **Answering questions.** A LangGraph workflow finds the 4 most relevant chunks, then sends them with the question to a fast AI model on Groq. The model is told to answer only from those chunks, cite them as `[file p.N]`, and say *"I couldn't find that in your documents."* when the answer isn't there.
-5. **Live streaming.** The answer appears in the browser word by word as it is generated.
-6. **Web interface.** A React page with drag-and-drop upload, a document list, saved conversations, clickable source chips that show the exact excerpt, and a dashboard with speed and usage charts.
-7. **Testing.** 69 backend tests and 17 frontend tests, plus a full end-to-end check against the real Atlas database and Groq.
+5. **Natural language to SQL.** Spreadsheets (CSV/Excel) are also loaded into SQL tables. For a question about them ("total revenue in Q2?"), the AI writes a SQL query, the app runs it read-only, and the chat shows the **SQL query and its results table** above the answer, so totals, counts and "top 5" questions are exact. For PDF, Word and text questions the chat shows the real **MongoDB search query** and the passages it found.
+6. **Live streaming.** The answer appears in the browser word by word as it is generated.
+7. **Web interface.** A React page with drag-and-drop upload, a document list, saved conversations, clickable source chips that show the exact excerpt, and a dashboard with speed and usage charts.
+8. **Testing.** 123 backend tests and 22 frontend tests, plus a full end-to-end check against the real Atlas database and Groq.
 
 Problems solved along the way:
 - Groq retired the Llama 3 model named in the brief, so the app uses `openai/gpt-oss-120b`, and the model is now a setting.
@@ -52,6 +53,7 @@ Problems solved along the way:
 ## Features
 
 - **Document upload** — PDF, TXT (UTF-8, UTF-16, Windows-1252), DOCX, CSV and Excel `.xlsx` up to 20 MB, by drag-and-drop or file picker. Spreadsheet rows are stored as `Column: value | Column: value` lines so every chunk keeps its column names; each Excel sheet counts as a page, so citations point to the sheet number. Old `.xls` files must be saved as `.xlsx` first. Uploads are all-or-nothing: a failed upload never leaves half a document behind.
+- **Query panel (NL-to-SQL)** — every answer shows the database query behind it with a results table: AI-written SQL for questions about uploaded spreadsheets (one read-only `SELECT`, 5-second limit, one automatic retry with the error), or the MongoDB `$vectorSearch` pipeline and retrieved passages for documents. Spreadsheets uploaded before this feature need to be uploaded again to get their SQL tables.
 - **Grounded answers with citations** — answers quote `[file p.N]`, list their sources as chips that expand to the exact excerpt, and say *"I couldn't find that in your documents."* instead of guessing.
 - **Streaming** — tokens arrive over Server-Sent Events as Groq generates them.
 - **Conversations** — saved in MongoDB; follow-up questions understand the earlier turns.
@@ -76,7 +78,11 @@ Problems solved along the way:
 
 ```
 Upload:  file ──► extract text per page ──► split (1000 chars, 150 overlap) ──► embed (MiniLM, 384-d) ──► Atlas `chunks`
-Ask:     question ──► LangGraph: retrieve (Atlas $vectorSearch, top 4) ──► generate (ChatGroq) ──► SSE tokens ──► browser
+         CSV/XLSX rows also ──► SQLite tables (`backend/data/tables.db`)
+Ask:     question ──► LangGraph: plan_sql (ChatGroq writes SQL if the question is about a spreadsheet; run read-only)
+                       ├─ SQL worked ──────────────────────────────► generate from the result rows
+                       └─ otherwise ──► retrieve (Atlas $vectorSearch, top 4) ──► generate from the excerpts
+         ──► SSE: meta (queries + sources) → tokens → done ──► browser shows query panel + streamed answer
 Measure: each answer stores time-to-first-word, total time and tokens/sec ──► GET /api/stats ──► dashboard
 ```
 
@@ -98,6 +104,7 @@ backend/
     ingestion/   file loaders and the upload pipeline
     rag/         embeddings, Atlas vector store, prompts, LangGraph graph
     models/      Beanie documents
+    sql/         SQLite table store and the SQL planner
     core/        settings and database connections
   tests/         pytest suite (unit + MongoDB integration tests)
 frontend/
@@ -139,12 +146,13 @@ docs/            design spec, implementation plan, screenshots
 | `GROQ_API_KEY` | yes | — |
 | `GROQ_MODEL` | no | `openai/gpt-oss-120b` |
 | `EMBEDDING_MODEL` | no | `sentence-transformers/all-MiniLM-L6-v2` |
+| `SQLITE_PATH` | no | `data/tables.db` (spreadsheet rows as SQL tables) |
 
 ## Tests
 
 ```powershell
-cd backend;  .venv\Scripts\python.exe -m pytest   # 69 tests; integration tests use <MONGODB_DB>_test, skipped without MONGODB_URI
-cd frontend; npm test                              # 17 tests
+cd backend;  .venv\Scripts\python.exe -m pytest   # 123 tests; integration tests use <MONGODB_DB>_test, skipped without MONGODB_URI
+cd frontend; npm test                              # 22 tests
 ```
 
 ## Design documents
