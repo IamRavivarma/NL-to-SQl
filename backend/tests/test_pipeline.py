@@ -46,6 +46,36 @@ async def test_ingest_keeps_record_when_cleanup_also_fails(mongo):
     assert await StoredDocument.count() == 1
 
 
+async def test_ingest_csv_creates_sql_tables(mongo, table_store):
+    doc = await ingest_document("staff.csv", b"Name,Salary\nAlice,52000\n", FakeChunkStore(), table_store)
+    assert [(t.table_name, t.document_id) for t in table_store.catalog()] == [("staff", str(doc.id))]
+
+
+async def test_ingest_text_document_creates_no_sql_tables(mongo, table_store):
+    await ingest_document("guide.pdf", make_pdf(["Refund policy text"]), FakeChunkStore(), table_store)
+    assert table_store.catalog() == []
+
+
+class FailingTables:
+    def __init__(self):
+        self.dropped = []
+
+    def create_tables(self, document_id, filename, tables):
+        raise RuntimeError("disk full")
+
+    def drop_document(self, document_id):
+        self.dropped.append(document_id)
+        return 0
+
+
+async def test_ingest_rolls_back_when_table_store_fails(mongo):
+    store = FakeChunkStore()
+    with pytest.raises(IngestionError, match="Could not process the document."):
+        await ingest_document("staff.csv", b"Name,Salary\nAlice,52000\n", store, FailingTables())
+    assert await StoredDocument.count() == 0
+    assert len(store.deleted) == 1  # its chunks were removed too
+
+
 async def test_ingest_rejects_invalid_file_before_touching_db(mongo):
     store = FakeChunkStore()
     with pytest.raises(DocumentLoadError):

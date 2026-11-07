@@ -3,10 +3,15 @@ from langchain_groq import ChatGroq
 
 from app.core.config import settings
 from app.rag.vector_store import ChunkStore, get_chunk_store
+from app.sql.table_store import TableStore, get_table_store
 
 
 def get_store() -> ChunkStore:
     return get_chunk_store()
+
+
+def get_tables() -> TableStore:
+    return get_table_store()
 
 
 def get_llm() -> BaseChatModel:

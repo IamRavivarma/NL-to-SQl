@@ -39,10 +39,19 @@ async def mongo():
 
 
 @pytest.fixture
-async def client(mongo):
-    """HTTP client against the app, with Beanie initialised on the test DB."""
+def table_store(tmp_path):
+    from app.sql.table_store import TableStore
+
+    return TableStore(str(tmp_path / "tables.db"))
+
+
+@pytest.fixture
+async def client(mongo, table_store):
+    """HTTP client against the app, with Beanie initialised on the test DB and a temporary SQL table store."""
+    from app.api.deps import get_tables
     from app.main import app
 
+    app.dependency_overrides[get_tables] = lambda: table_store
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as http:
         yield http
     app.dependency_overrides.clear()

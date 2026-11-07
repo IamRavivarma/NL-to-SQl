@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from starlette.concurrency import run_in_threadpool
 
-from app.ingestion.loaders import Page, load_pages
+from app.ingestion.loaders import Page, load_pages, load_tables
 from app.models import StoredDocument
 
 logger = logging.getLogger(__name__)
@@ -34,10 +34,14 @@ def split_pages(pages: list[Page]) -> list[Chunk]:
     return chunks
 
 
-async def ingest_document(filename: str, content: bytes, store) -> StoredDocument:
-    """Validate, split, embed and store a document. All-or-nothing: on failure nothing is left behind."""
+async def ingest_document(filename: str, content: bytes, store, tables=None) -> StoredDocument:
+    """Validate, split, embed and store a document; spreadsheets also become SQL tables in `tables`.
+
+    All-or-nothing: on failure nothing is left behind.
+    """
     file_type, pages, page_count = load_pages(filename, content)
     chunks = split_pages(pages)
+    sql_tables = load_tables(filename, content) if tables is not None else []
 
     document = StoredDocument(
         filename=filename,
@@ -59,8 +63,11 @@ async def ingest_document(filename: str, content: bytes, store) -> StoredDocumen
                 for chunk in chunks
             ],
         )
+        if sql_tables:
+            # A failed create_tables rolls back its own transaction, so only the chunks need cleaning up.
+            await run_in_threadpool(tables.create_tables, document_id, filename, sql_tables)
     except Exception as exc:
-        logger.exception("Storing chunks failed for %s", filename)
+        logger.exception("Storing chunks or tables failed for %s", filename)
         try:
             await run_in_threadpool(store.delete_document, document_id)
         except Exception:

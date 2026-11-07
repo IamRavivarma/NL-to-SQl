@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 
-from app.api.deps import get_store
+from app.api.deps import get_store, get_tables
 from app.ingestion.loaders import MAX_FILE_BYTES, DocumentLoadError
 from app.ingestion.pipeline import IngestionError, ingest_document
 
@@ -8,11 +8,11 @@ router = APIRouter(prefix="/api", tags=["upload"])
 
 
 @router.post("/upload", status_code=201)
-async def upload(file: UploadFile, store=Depends(get_store)):
+async def upload(file: UploadFile, store=Depends(get_store), tables=Depends(get_tables)):
     # One byte past the limit is enough to detect an oversized file without loading all of it.
     content = await file.read(MAX_FILE_BYTES + 1)
     try:
-        document = await ingest_document(file.filename or "", content, store)
+        document = await ingest_document(file.filename or "", content, store, tables)
     except DocumentLoadError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except IngestionError as exc:

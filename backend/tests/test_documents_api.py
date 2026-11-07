@@ -82,6 +82,18 @@ async def test_delete_keeps_record_when_chunk_delete_fails(client):
     assert await StoredDocument.count() == 1  # user can retry the delete
 
 
+async def test_upload_csv_creates_table_and_delete_drops_it(client, table_store):
+    use_store(FakeChunkStore())
+    response = await client.post(
+        "/api/upload", files={"file": ("staff.csv", b"Name,Salary\nAlice,52000\n", "text/csv")}
+    )
+    doc_id = response.json()["id"]
+    assert [t.table_name for t in table_store.catalog()] == ["staff"]
+
+    assert (await client.delete(f"/api/documents/{doc_id}")).status_code == 204
+    assert table_store.catalog() == []
+
+
 async def test_delete_unknown_document_returns_404(client):
     use_store(FakeChunkStore())
     response = await client.delete("/api/documents/650000000000000000000000")
