@@ -159,6 +159,5 @@ cd frontend; npm test                              # 22 tests
 
 - [Design spec](docs/specs/2026-10-10-rag-assistant-design.md)
 - [Implementation plan](docs/plans/2026-10-10-rag-assistant-plan.md)
-
 - [Query panel (NL-to-SQL) design](docs/specs/2026-11-07-query-panel-design.md)
 - [Query panel implementation plan](docs/plans/2026-11-07-query-panel-plan.md)

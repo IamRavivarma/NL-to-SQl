@@ -4,7 +4,7 @@
 
 A single-user web app where a user uploads unstructured documents (PDF, TXT, DOCX) and asks questions about them. The FastAPI backend splits each document into chunks, embeds them locally with HuggingFace `all-MiniLM-L6-v2`, and stores them in **MongoDB Atlas Vector Search**. A **LangGraph** retrieve → generate graph finds the most relevant chunks and **ChatGroq** writes a grounded answer that is **streamed** token by token to the React frontend, with source citations. A **Recharts** dashboard shows usage and speed metrics (Groq latency and tokens/second), demonstrating the "lightning-fast inference" goal.
 
-This replaces an earlier NL-to-SQL prototype, which remains in git history.
+This replaces an earlier NL-to-SQL prototype.
 
 ### In scope
 - Upload, list, delete documents (PDF, TXT, DOCX; ≤ 20 MB each)
