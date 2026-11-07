@@ -73,7 +73,7 @@ export default function ChatView({
     setMessages((prev) => [
       ...prev,
       { id: `user-${Date.now()}`, role: "user", content: question },
-      { id: STREAMING_ID, role: "assistant", content: "", sources: [], metrics: null, status: "streaming" },
+      { id: STREAMING_ID, role: "assistant", content: "", sources: [], queries: [], metrics: null, status: "streaming" },
     ]);
 
     try {
@@ -83,11 +83,17 @@ export default function ChatView({
         onEvent: (name, data) => {
           if (name === "meta") {
             adoptConversation(data.conversation_id);
-            updateStreaming({ sources: data.sources });
+            updateStreaming({ sources: data.sources, queries: data.queries ?? [] });
           } else if (name === "token") {
             updateStreaming((m) => ({ content: m.content + data.text }));
           } else if (name === "done") {
-            updateStreaming({ id: data.message_id, status: "complete", metrics: data.metrics, sources: data.sources });
+            updateStreaming({
+              id: data.message_id,
+              status: "complete",
+              metrics: data.metrics,
+              sources: data.sources,
+              queries: data.queries ?? [],
+            });
           } else if (name === "error") {
             adoptConversation(data.conversation_id);
             updateStreaming({ id: `error-${Date.now()}`, status: "error", error: data.message });

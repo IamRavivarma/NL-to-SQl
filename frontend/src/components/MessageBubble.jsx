@@ -3,6 +3,7 @@ import { useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { formatSeconds } from "../lib/format";
+import QueryPanel from "./QueryPanel";
 
 function Speed({ metrics }) {
   return (
@@ -73,10 +74,11 @@ export default function MessageBubble({ message }) {
         <Sparkles className="size-4" aria-hidden="true" />
       </span>
       <div className="min-w-0 flex-1 rounded-2xl rounded-tl-md border border-line bg-surface px-5 py-4">
+        <QueryPanel queries={message.queries} />
         {waiting ? (
           <p className="flex items-center gap-2 text-muted">
             <span className="size-2 animate-pulse rounded-full bg-accent" aria-hidden="true" />
-            Searching your documents…
+            {message.queries?.length ? "Writing the answer…" : "Searching your documents…"}
           </p>
         ) : (
           <div className="prose prose-slate max-w-none prose-p:my-1.5 prose-p:leading-relaxed prose-li:my-0.5 prose-table:text-sm">
