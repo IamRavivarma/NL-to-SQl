@@ -56,7 +56,7 @@ function QueryCard({ run }) {
   const isSql = run.kind === "sql";
   const where = isSql
     ? [...new Set((run.tables ?? []).map((t) => t.filename))].join(", ")
-    : "Atlas Vector Search";
+    : `Atlas Vector Search · ${run.label ?? "all documents"}`;
   const partial = run.row_count > run.rows.length;
 
   return (

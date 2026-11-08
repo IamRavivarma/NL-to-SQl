@@ -152,7 +152,7 @@ async def test_question_about_an_uploaded_csv_is_answered_with_sql(client):
     assert events[0][1]["sources"] == [{"filename": "staff.csv", "page": 1, "snippet": "Rows returned by the SQL query"}]
 
 
-async def test_question_about_a_selected_document_is_limited_to_it_and_tagged(client):
+async def test_question_about_a_selected_document_searches_it_first_and_is_tagged(client):
     document = StoredDocument(filename="handbook.pdf", file_type="pdf", size_bytes=1, page_count=1, chunk_count=1)
     await document.insert()
     store = FakeChunkStore(hits=[hit("Leave is 24 days.", "handbook.pdf", document_id=str(document.id))])
@@ -160,7 +160,7 @@ async def test_question_about_a_selected_document_is_limited_to_it_and_tagged(cl
 
     response = await client.post("/api/query", json={"question": "Leave?", "document_id": str(document.id)})
     events = parse_sse(response.text)
-    assert store.document_ids == [str(document.id)]
+    assert store.document_ids == [str(document.id), None]  # the selected file first, then every document
 
     conversation = (await client.get(f"/api/conversations/{events[0][1]['conversation_id']}")).json()
     question, answer = conversation["messages"]

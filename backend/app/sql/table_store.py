@@ -189,14 +189,11 @@ class TableStore:
         finally:
             conn.close()
 
-    def catalog(self, document_id: str | None = None) -> list[TableInfo]:
-        """All tables, or only those of one document."""
-        sql = f'SELECT table_name, document_id, filename, page, columns, row_count FROM "{CATALOG}"'
-        params: tuple = ()
-        if document_id is not None:
-            sql, params = f"{sql} WHERE document_id = ?", (document_id,)
+    def catalog(self) -> list[TableInfo]:
         with self._read() as conn:
-            rows = conn.execute(f"{sql} ORDER BY rowid", params).fetchall()
+            rows = conn.execute(
+                f'SELECT table_name, document_id, filename, page, columns, row_count FROM "{CATALOG}" ORDER BY rowid'
+            ).fetchall()
         return [TableInfo(name, doc, filename, page, json.loads(cols), count) for name, doc, filename, page, cols, count in rows]
 
     def sample_rows(self, table_name: str, n: int = 3) -> list[tuple]:

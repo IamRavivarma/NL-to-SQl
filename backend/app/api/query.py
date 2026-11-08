@@ -25,7 +25,7 @@ TITLE_CHARS = 60
 class QueryRequest(BaseModel):
     question: str = Field(max_length=2000)
     conversation_id: PydanticObjectId | None = None
-    # The file selected in the sidebar: answer only from it. None searches every document.
+    # The file selected in the sidebar: searched first and preferred. None treats every document the same.
     document_id: PydanticObjectId | None = None
 
     @field_validator("question")
@@ -89,15 +89,25 @@ async def query(request: QueryRequest, store=Depends(get_store), llm=Depends(get
         document_filename=document.filename if document else None,
     ).insert()
 
-    document_id = str(document.id) if document else None
     return StreamingResponse(
-        _events(conversation, request.question, history, store, llm, tables, document_id),
+        _events(
+            conversation,
+            request.question,
+            history,
+            store,
+            llm,
+            tables,
+            str(document.id) if document else None,
+            document.filename if document else None,
+        ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 
-async def _events(conversation: Conversation, question: str, history, store, llm, tables=None, document_id=None):
+async def _events(
+    conversation: Conversation, question: str, history, store, llm, tables=None, document_id=None, document_filename=None
+):
     conversation_id = str(conversation.id)
     partial: list[str] = []
     queries: list[dict] = []
@@ -119,6 +129,7 @@ async def _events(conversation: Conversation, question: str, history, store, llm
             model_name=settings.groq_model,
             tables=tables,
             document_id=document_id,
+            document_filename=document_filename,
         ):
             if event["type"] == "meta":
                 queries = event["queries"]

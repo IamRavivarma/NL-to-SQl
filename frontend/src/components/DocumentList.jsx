@@ -28,7 +28,7 @@ export default function DocumentList({ documents, selectedId, onSelect, onDelete
               type="button"
               onClick={() => onSelect(selected ? null : doc.id)}
               aria-pressed={selected}
-              title={selected ? "Click to ask about all documents again" : "Click to ask only about this file"}
+              title={selected ? "Click to treat all documents the same again" : "Click to search this file first"}
               className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-1.5 text-left focus-visible:outline-2 focus-visible:outline-accent"
             >
               <span

@@ -25,6 +25,8 @@ from app.sql.table_store import QueryResult, SqlError, TableInfo
 SNIPPET_CHARS = 200
 DISPLAY_ROWS = 50
 SQL_SOURCE_SNIPPET = "Rows returned by the SQL query"
+# How many passages the selected file contributes before the best passages from every document.
+SELECTED_K = 2
 
 Hit = tuple[Document, float]
 
@@ -35,6 +37,7 @@ class RagState(TypedDict, total=False):
     sql_runs: list[dict]
     sql_ok: bool
     hits: list[Hit]
+    searches: list[dict]  # each vector search that ran: {"document_id", "hits"}
     answer: AIMessage
 
 
@@ -53,15 +56,15 @@ def _snippet(text: str) -> str:
     return " ".join(text.split())[:SNIPPET_CHARS]
 
 
-def mongodb_query_run(hits: list[Hit], document_id: str | None = None) -> dict:
+def mongodb_query_run(hits: list[Hit], document_id: str | None = None, limit: int = TOP_K, label: str = "") -> dict:
     """The aggregation pipeline langchain-mongodb runs for a similarity search, and the chunks it returned."""
     vector_search = {"index": VECTOR_INDEX_NAME, "path": "embedding"}
     if document_id:
         vector_search["filter"] = document_filter(document_id)
     vector_search |= {
         "queryVector": "<384 numbers from your question>",
-        "numCandidates": TOP_K * OVERSAMPLING_FACTOR,
-        "limit": TOP_K,
+        "numCandidates": limit * OVERSAMPLING_FACTOR,
+        "limit": limit,
     }
     pipeline = [
         {"$vectorSearch": vector_search},
@@ -70,6 +73,7 @@ def mongodb_query_run(hits: list[Hit], document_id: str | None = None) -> dict:
     ]
     return {
         "kind": "mongodb",
+        "label": label or "all documents",
         "query": f"db.chunks.aggregate({json.dumps(pipeline, indent=2)})",
         "columns": ["File", "Page", "Score", "Excerpt"],
         "rows": [
@@ -100,6 +104,22 @@ def _tables_in(sql: str, catalog: list[TableInfo]) -> list[dict]:
         if re.search(rf"\b{re.escape(info.table_name)}\b", sql, re.IGNORECASE) and source not in used:
             used.append(source)
     return used
+
+
+def _merge_hits(first: list[Hit], rest: list[Hit]) -> list[Hit]:
+    """`first` (the selected file's passages) in front, then the other passages not already included."""
+    seen = {(doc.metadata.get("document_id"), doc.metadata.get("chunk_index"), doc.page_content) for doc, _ in first}
+    merged = list(first)
+    for doc, score in rest:
+        key = (doc.metadata.get("document_id"), doc.metadata.get("chunk_index"), doc.page_content)
+        if key not in seen:
+            seen.add(key)
+            merged.append((doc, score))
+    return merged[:TOP_K]
+
+
+def _selected_label(document_filename: str | None) -> str:
+    return f"{document_filename} (selected file)" if document_filename else "selected file"
 
 
 def _sql_sources(run: dict) -> list[dict]:
@@ -147,8 +167,16 @@ def _content(message: AIMessage) -> str:
     return message.content if isinstance(message.content, str) else ""
 
 
-def build_graph(store, llm: BaseChatModel, tables=None, document_id: str | None = None):
-    """`document_id` limits both the SQL tables and the document search to one uploaded file."""
+def build_graph(
+    store, llm: BaseChatModel, tables=None, document_id: str | None = None, document_filename: str | None = None
+):
+    """`document_id` is the file selected in the sidebar: it is searched first and preferred, never exclusively."""
+    selected_note = (
+        f"\n\n(The user selected {document_filename}. Prefer it when it answers the question; "
+        "otherwise use the other information.)"
+        if document_id
+        else ""
+    )
 
     async def run_sql(sql: str) -> tuple[QueryResult | None, str | None]:
         try:
@@ -157,12 +185,16 @@ def build_graph(store, llm: BaseChatModel, tables=None, document_id: str | None 
             return None, str(exc)
 
     async def plan_sql(state: RagState) -> dict:
-        catalog = await run_in_threadpool(tables.catalog, document_id) if tables is not None else []
+        catalog = await run_in_threadpool(tables.catalog) if tables is not None else []
         if not catalog:
             return {"sql_runs": [], "sql_ok": False}
         samples = {info.table_name: await run_in_threadpool(tables.sample_rows, info.table_name) for info in catalog}
+        schema = describe_schema(catalog, samples)
+        selected_tables = [info.table_name for info in catalog if info.document_id == document_id]
+        if selected_tables:
+            schema += f"\n\nThe user selected {document_filename}; prefer its tables: {', '.join(selected_tables)}."
         messages = [
-            ("system", SQL_PLANNER_PROMPT.format(schema=describe_schema(catalog, samples))),
+            ("system", SQL_PLANNER_PROMPT.format(schema=schema)),
             *state["history"][-HISTORY_LIMIT:],
             ("human", state["question"]),
         ]
@@ -181,8 +213,16 @@ def build_graph(store, llm: BaseChatModel, tables=None, document_id: str | None 
         return {"sql_runs": [sql_query_run(sql, result, error, _tables_in(sql, catalog))], "sql_ok": error is None}
 
     async def retrieve(state: RagState) -> dict:
-        hits = await run_in_threadpool(store.search, state["question"], TOP_K, document_id)
-        return {"hits": hits}
+        question = state["question"]
+        if not document_id:
+            everywhere = await run_in_threadpool(store.search, question, TOP_K)
+            return {"hits": everywhere, "searches": [{"document_id": None, "hits": everywhere}]}
+        selected = await run_in_threadpool(store.search, question, SELECTED_K, document_id)
+        everywhere = await run_in_threadpool(store.search, question, TOP_K)
+        return {
+            "hits": _merge_hits(selected, everywhere),
+            "searches": [{"document_id": document_id, "hits": selected}, {"document_id": None, "hits": everywhere}],
+        }
 
     async def generate(state: RagState) -> dict:
         if state.get("sql_ok"):
@@ -192,7 +232,7 @@ def build_graph(store, llm: BaseChatModel, tables=None, document_id: str | None 
         messages = [
             ("system", system),
             *state["history"][-HISTORY_LIMIT:],
-            ("human", f"{context}\n\nQuestion: {state['question']}"),
+            ("human", f"{context}{selected_note}\n\nQuestion: {state['question']}"),
         ]
         return {"answer": await llm.ainvoke(messages)}
 
@@ -216,6 +256,7 @@ async def stream_answer(
     model_name: str,
     tables=None,
     document_id: str | None = None,
+    document_filename: str | None = None,
 ) -> AsyncIterator[dict]:
     started = time.perf_counter()
     generation_started = started
@@ -227,7 +268,7 @@ async def stream_answer(
     parts: list[str] = []
     final: AIMessage | None = None
 
-    graph = build_graph(store, llm, tables, document_id)
+    graph = build_graph(store, llm, tables, document_id, document_filename)
     async for mode, payload in graph.astream(
         {"question": question, "history": history}, stream_mode=["updates", "messages"]
     ):
@@ -242,7 +283,18 @@ async def stream_answer(
                 hits = payload["retrieve"]["hits"]
                 chunks_retrieved = len(hits)
                 sources = build_sources(hits)
-                queries = [*sql_runs, mongodb_query_run(hits, document_id)]
+                queries = [
+                    *sql_runs,
+                    *(
+                        mongodb_query_run(
+                            search["hits"],
+                            search["document_id"],
+                            limit=SELECTED_K if search["document_id"] else TOP_K,
+                            label=_selected_label(document_filename) if search["document_id"] else "",
+                        )
+                        for search in payload["retrieve"]["searches"]
+                    ),
+                ]
                 generation_started = time.perf_counter()
                 yield {"type": "meta", "sources": sources, "queries": queries}
             elif "generate" in payload:

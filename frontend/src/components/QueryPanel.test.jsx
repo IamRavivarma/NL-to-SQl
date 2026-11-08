@@ -48,6 +48,12 @@ describe("QueryPanel", () => {
     expect(html).not.toContain("1 rows");
   });
 
+  it("names the selected file a MongoDB search was limited to", () => {
+    const html = render([{ ...MONGO_RUN, label: "handbook.pdf (selected file)" }, { ...MONGO_RUN, label: "all documents" }]);
+    expect(html).toContain("handbook.pdf (selected file)");
+    expect(html).toContain("all documents");
+  });
+
   it("says when only part of the result is shown", () => {
     const rows = Array.from({ length: 50 }, (_, i) => [i]);
     const html = render([{ ...SQL_RUN, columns: ["n"], rows, row_count: 200, truncated: true }]);

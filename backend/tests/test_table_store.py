@@ -143,9 +143,3 @@ def test_numbers_too_big_for_sqlite_integers_are_kept_as_text(tables):
     assert tables.catalog()[0].columns[0]["type"] == "TEXT"
     assert tables.run_select("SELECT id FROM ids").rows == [[big], ["7"]]
 
-
-def test_catalog_can_be_limited_to_one_document(tables):
-    tables.create_tables("doc1", "staff.csv", [staff_table()])
-    tables.create_tables("doc2", "other.csv", [staff_table()])
-    assert [t.table_name for t in tables.catalog("doc2")] == ["other"]
-    assert len(tables.catalog()) == 2

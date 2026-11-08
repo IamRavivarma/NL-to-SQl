@@ -131,34 +131,71 @@ async def test_displayed_rows_are_capped_at_50(table_store):
     assert run["row_count"] == 120 and run["truncated"] is False
 
 
-async def test_selected_document_limits_the_search_and_the_query_shows_the_filter(table_store):
-    store = FakeChunkStore(hits=[hit("Leave is 24 days.", "handbook.pdf", document_id="docA"), hit("Other", "b.pdf", document_id="docB")])
+
+async def test_selected_document_is_searched_first_then_all_documents(table_store):
+    store = FakeChunkStore(
+        hits=[
+            hit("Other text", "other.pdf", document_id="docB", score=0.95),
+            hit("Leave is 24 days.", "handbook.pdf", document_id="docA", score=0.80),
+            hit("More other", "more.pdf", document_id="docC", score=0.70),
+        ]
+    )
     llm = scripted_llm("24 days [handbook.pdf p.1].")
-    events = await collect(question="Leave?", store=store, llm=llm, tables=table_store, document_id="docA")
+    events = await collect(
+        question="Leave?",
+        store=store,
+        llm=llm,
+        tables=table_store,
+        document_id="docA",
+        document_filename="handbook.pdf",
+    )
 
-    assert store.document_ids == ["docA"]
-    [run] = meta_of(events)["queries"]
-    assert '"filter": {' in run["query"] and '"document_id": {' in run["query"] and '"$eq": "docA"' in run["query"]
-    assert [row[0] for row in run["rows"]] == ["handbook.pdf"]
+    assert store.document_ids == ["docA", None]  # the selected file first, then every document
+    selected_run, all_run = meta_of(events)["queries"]
+    assert selected_run["label"] == "handbook.pdf (selected file)"
+    assert '"$eq": "docA"' in selected_run["query"] and '"limit": 2' in selected_run["query"]
+    assert [r[0] for r in selected_run["rows"]] == ["handbook.pdf"]
+    assert all_run["label"] == "all documents" and '"filter"' not in all_run["query"]
+    # The answer sees the selected file's passage first, and still the best passages from other files.
+    answer_prompt = llm.calls[0][-1].content
+    assert answer_prompt.index("Leave is 24 days.") < answer_prompt.index("Other text")
+    assert "More other" in answer_prompt
+    assert "The user selected handbook.pdf" in answer_prompt
+    assert [s["filename"] for s in meta_of(events)["sources"]] == ["handbook.pdf", "other.pdf", "more.pdf"]
 
 
-async def test_all_documents_search_has_no_filter(table_store):
+async def test_without_a_selection_there_is_one_search_without_a_filter(table_store):
     store = FakeChunkStore(hits=[hit("x")])
     events = await collect(question="Q?", store=store, llm=scripted_llm("A."), tables=table_store)
     assert store.document_ids == [None]
-    assert '"filter"' not in meta_of(events)["queries"][0]["query"]
+    [run] = meta_of(events)["queries"]
+    assert '"filter"' not in run["query"] and run["label"] == "all documents"
 
 
-async def test_selected_pdf_skips_sql_even_when_spreadsheets_exist(sales_tables):
-    llm = scripted_llm("24 days.")
-    events = await collect(question="Leave?", store=FakeChunkStore(hits=[hit("x")]), llm=llm, tables=sales_tables, document_id="pdf1")
-    assert len(llm.calls) == 1  # no SQL planner call: the selected file has no tables
-    assert [q["kind"] for q in meta_of(events)["queries"]] == ["mongodb"]
+async def test_selected_pdf_still_lets_sql_answer_from_spreadsheets(sales_tables):
+    llm = scripted_llm('{"sql": "SELECT SUM(revenue) AS total FROM sales_q1"}', "215000.")
+    events = await collect(
+        question="Total revenue?",
+        store=FakeChunkStore(),
+        llm=llm,
+        tables=sales_tables,
+        document_id="pdf1",
+        document_filename="handbook.pdf",
+    )
+    assert [q["kind"] for q in meta_of(events)["queries"]] == ["sql"]
 
 
-async def test_selected_spreadsheet_only_offers_its_own_tables(sales_tables):
+async def test_selected_spreadsheet_is_preferred_but_other_tables_stay_available(sales_tables):
     sales_tables.create_tables("doc2", "staff.csv", [Table(sheet=None, page=1, header=["Name"], rows=[["Ann"]])])
     llm = scripted_llm('{"sql": "SELECT name FROM staff"}', "Ann.")
-    await collect(question="Who?", store=FakeChunkStore(), llm=llm, tables=sales_tables, document_id="doc2")
+    await collect(
+        question="Who?",
+        store=FakeChunkStore(),
+        llm=llm,
+        tables=sales_tables,
+        document_id="doc2",
+        document_filename="staff.csv",
+    )
     planner_prompt = llm.calls[0][0].content
-    assert "staff" in planner_prompt and "sales_q1" not in planner_prompt
+    assert "staff" in planner_prompt and "sales_q1" in planner_prompt
+    assert "The user selected staff.csv" in planner_prompt and "prefer its tables: staff" in planner_prompt
