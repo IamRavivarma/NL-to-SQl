@@ -23,6 +23,9 @@ function ConnectionStatus({ online }) {
 export default function App() {
   const [tab, setTab] = useState(() => tabFromHash(window.location.hash));
   const [documents, setDocuments] = useState([]);
+  // The file questions are limited to; null asks about every document.
+  const [selectedDocumentId, setSelectedDocumentId] = useState(null);
+  const selectedDocument = documents.find((d) => d.id === selectedDocumentId) ?? null;
   const [conversations, setConversations] = useState([]);
   const [activeConversationId, setActiveConversationId] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -70,6 +73,7 @@ export default function App() {
   function handleDeleteDocument(id) {
     run(async () => {
       await deleteDocument(id);
+      if (id === selectedDocumentId) setSelectedDocumentId(null);
       setDocuments(await listDocuments());
     });
   }
@@ -86,6 +90,8 @@ export default function App() {
     <div className="flex h-screen">
       <Sidebar
         documents={documents}
+        selectedDocumentId={selectedDocument?.id ?? null}
+        onSelectDocument={setSelectedDocumentId}
         conversations={conversations}
         activeConversationId={activeConversationId}
         busy={busy}
@@ -130,6 +136,8 @@ export default function App() {
             <ChatView
               conversationId={activeConversationId}
               hasDocuments={documents.length > 0}
+              selectedDocument={selectedDocument}
+              onClearSelection={() => setSelectedDocumentId(null)}
               onConversationStarted={setActiveConversationId}
               onAnswerFinished={refreshConversations}
               onBusyChange={setBusy}

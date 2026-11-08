@@ -1,4 +1,4 @@
-import { ArrowUp, LoaderCircle } from "lucide-react";
+import { ArrowUp, FileText, LoaderCircle, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { getConversation, streamQuery } from "../services/api";
 import EmptyState from "./EmptyState";
@@ -9,6 +9,8 @@ const STREAMING_ID = "streaming";
 export default function ChatView({
   conversationId,
   hasDocuments,
+  selectedDocument,
+  onClearSelection,
   onConversationStarted,
   onAnswerFinished,
   onBusyChange,
@@ -72,7 +74,7 @@ export default function ChatView({
     setBusyState(true);
     setMessages((prev) => [
       ...prev,
-      { id: `user-${Date.now()}`, role: "user", content: question },
+      { id: `user-${Date.now()}`, role: "user", content: question, document_filename: selectedDocument?.filename },
       { id: STREAMING_ID, role: "assistant", content: "", sources: [], queries: [], metrics: null, status: "streaming" },
     ]);
 
@@ -80,6 +82,7 @@ export default function ChatView({
       await streamQuery({
         question,
         conversationId,
+        documentId: selectedDocument?.id,
         onEvent: (name, data) => {
           if (name === "meta") {
             adoptConversation(data.conversation_id);
@@ -127,6 +130,25 @@ export default function ChatView({
         </div>
       </div>
       <div className="px-6 pb-6">
+        {selectedDocument && (
+          <div className="mx-auto mb-2 flex max-w-3xl">
+            <span className="flex min-w-0 items-center gap-1.5 rounded-full bg-accent-soft py-1 pl-3 pr-1 text-xs text-accent-strong ring-1 ring-accent/30">
+              <FileText className="size-3.5 shrink-0" aria-hidden="true" />
+              <span className="shrink-0">Asking about</span>
+              <span className="truncate font-semibold">{selectedDocument.filename}</span>
+              <button
+                type="button"
+                onClick={onClearSelection}
+                disabled={busy}
+                aria-label="Ask about all documents"
+                title="Ask about all documents"
+                className="rounded-full p-0.5 hover:bg-accent/15 disabled:opacity-50"
+              >
+                <X className="size-3.5" aria-hidden="true" />
+              </button>
+            </span>
+          </div>
+        )}
         <form
           onSubmit={handleSubmit}
           className="mx-auto flex max-w-3xl items-center gap-2 rounded-2xl border border-line bg-surface p-2 pl-4 shadow-[0_8px_30px_-12px_rgba(23,26,44,0.25)] focus-within:border-accent/50"
@@ -137,7 +159,13 @@ export default function ChatView({
           <input
             id="question"
             className="min-w-0 flex-1 bg-transparent py-2 text-[15px] placeholder:text-muted focus:outline-none"
-            placeholder={hasDocuments ? "Ask anything about your documents…" : "Upload a document to start asking questions"}
+            placeholder={
+              selectedDocument
+                ? `Ask about ${selectedDocument.filename}…`
+                : hasDocuments
+                  ? "Ask anything about your documents…"
+                  : "Upload a document to start asking questions"
+            }
             value={input}
             maxLength={2000}
             onChange={(e) => setInput(e.target.value)}

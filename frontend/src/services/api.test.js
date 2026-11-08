@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { createSseParser, statsPath } from "./api";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { createSseParser, statsPath, streamQuery } from "./api";
 
 describe("statsPath", () => {
   it("sends the browser's time-zone offset so days are counted in local time", () => {
@@ -66,5 +66,24 @@ describe("createSseParser", () => {
     const { events, feed } = collect();
     feed('event: token\ndata: {"text":"a"}\n\nevent: token\ndata: {"te');
     expect(events).toEqual([["token", { text: "a" }]]);
+  });
+});
+
+describe("streamQuery", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  async function sentBody(args) {
+    const fetch = vi.fn(async () => new Response("event: done\ndata: {}\n\n"));
+    vi.stubGlobal("fetch", fetch);
+    await streamQuery({ question: "Leave?", onEvent: () => {}, ...args });
+    return JSON.parse(fetch.mock.calls[0][1].body);
+  }
+
+  it("sends the selected file's id", async () => {
+    expect((await sentBody({ documentId: "a" })).document_id).toBe("a");
+  });
+
+  it("sends null when no file is selected", async () => {
+    expect((await sentBody({})).document_id).toBeNull();
   });
 });

@@ -9,6 +9,8 @@ function SectionTitle({ children }) {
 
 export default function Sidebar({
   documents,
+  selectedDocumentId,
+  onSelectDocument,
   conversations,
   activeConversationId,
   busy,
@@ -31,7 +33,12 @@ export default function Sidebar({
         <section className="space-y-3">
           <SectionTitle>Documents</SectionTitle>
           <FileUpload onUploaded={onUploaded} />
-          <DocumentList documents={documents} onDelete={onDeleteDocument} />
+          <DocumentList
+            documents={documents}
+            selectedId={selectedDocumentId}
+            onSelect={onSelectDocument}
+            onDelete={onDeleteDocument}
+          />
         </section>
 
         <section className="space-y-2">

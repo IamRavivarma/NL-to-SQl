@@ -73,13 +73,13 @@ export function createSseParser(onEvent) {
   return feed;
 }
 
-export async function streamQuery({ question, conversationId, onEvent, signal }) {
+export async function streamQuery({ question, conversationId, documentId, onEvent, signal }) {
   let response;
   try {
     response = await fetch(`${BASE_URL}/api/query`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question, conversation_id: conversationId ?? null }),
+      body: JSON.stringify({ question, conversation_id: conversationId ?? null, document_id: documentId ?? null }),
       signal,
     });
   } catch {
