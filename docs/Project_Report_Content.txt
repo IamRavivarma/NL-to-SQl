@@ -1,0 +1,583 @@
+===============================================================================
+            PROJECT REPORT CONTENT - RAG DATA ASSISTANT (WITH NL-TO-SQL)
+===============================================================================
+Use this file as the text for each chapter of the project report.
+Page numbers follow the table of contents below. [ ] marks a place to add a
+screenshot or diagram.
+
+TABLE OF CONTENTS
+-------------------------------------------------------------------------------
+1.  ABSTRACT ................................................ 1
+2.  PROJECT OBJECTIVE ....................................... 2
+    2.1 PROJECT DESCRIPTION & OVERVIEW
+3.  SYSTEM REQUIREMENTS ..................................... 4
+4.  SYSTEM ARCHITECTURE ..................................... 5
+5.  SYSTEM USAGE ............................................ 8
+6.  FLOW CHART DIAGRAM ...................................... 11
+7.  MODEL EVALUATION ........................................ 16
+8.  USE CASE ................................................ 18
+9.  SOURCE CODE ............................................. 21
+10. OUTPUT .................................................. 24
+11. CONCLUSION .............................................. 26
+12. FUTURE ENHANCEMENTS ..................................... 27
+13. REFERENCE ............................................... 28
+
+
+===============================================================================
+1. ABSTRACT
+===============================================================================
+Large language models (LLMs) such as ChatGPT can answer general questions, but
+they do not know the contents of an organisation's private files. They can also
+"hallucinate", meaning they give confident answers that are wrong, and they
+usually cannot say where an answer came from.
+
+This project is the RAG Data Assistant, a web application. Users upload their
+own documents (PDF, Word, text, CSV and Excel) and ask questions about them in
+plain English. The system uses Retrieval-Augmented Generation (RAG): each
+document is split into small chunks, and each chunk is turned into a vector
+embedding using the HuggingFace all-MiniLM-L6-v2 model. The vectors are stored
+in MongoDB Atlas Vector Search. For each question, the most relevant chunks
+are retrieved and passed to a large language model (openai/gpt-oss-120b on
+Groq). The model is instructed to answer only from those chunks and to cite
+the file and page.
+
+For spreadsheets the system adds a Natural Language to SQL (NL-to-SQL) module.
+Each spreadsheet's rows are loaded into SQL tables, and the LLM converts the
+user's question into a read-only SQL SELECT query. The query runs on the
+tables, and the answer is built from the exact result rows. This makes totals,
+counts, averages and rankings precise. Every answer shows the query used and
+its results table, so the user can check how the answer was found.
+
+The backend is FastAPI with a LangGraph agent. The frontend is React with
+Tailwind CSS. Answers are streamed word by word, and a dashboard measures
+response speed. The system is covered by 135 backend and 31 frontend
+automated tests.
+
+Keywords: RAG, LLM, Vector Search, Embeddings, NL-to-SQL, LangGraph, FastAPI,
+React, MongoDB Atlas, Groq.
+
+
+===============================================================================
+2. PROJECT OBJECTIVE
+===============================================================================
+The main objective is a document question-answering system that gives
+accurate, verifiable answers from the user's own files. The specific goals
+are:
+
+  1. Let users upload PDF, DOCX, TXT, CSV and XLSX files through a simple web
+     page.
+  2. Extract the text, split it into chunks, and store semantic embeddings so
+     that searches match by meaning, not only by keywords.
+  3. Answer questions using only the uploaded content, with a citation such
+     as [handbook.pdf p.2].
+  4. Say "I couldn't find that in your documents." instead of guessing when the
+     answer is not in the files (avoiding hallucination).
+  5. Convert natural-language questions about spreadsheets into SQL, so that
+     numeric answers (sum, count, average, top-N) are exact.
+  6. Show the database query and its result rows for every answer, so the
+     process is transparent.
+  7. Let the user select one uploaded file so it is searched first.
+  8. Stream answers in real time and measure performance (time to first word,
+     total time, tokens per second).
+  9. Keep conversation history so follow-up questions work.
+
+-------------------------------------------------------------------------------
+2.1 PROJECT DESCRIPTION & OVERVIEW
+-------------------------------------------------------------------------------
+The RAG Data Assistant is a "chat with your documents" application. It has
+three main parts:
+
+  a) Ingestion (upload)
+     - The file is read page by page (PDF/DOCX/TXT) or row by row (CSV/XLSX).
+       Each spreadsheet row keeps its column names, for example
+       "Name: Priya | Region: North | Revenue: 120000".
+     - The text is split into chunks of 1000 characters with a 150-character
+       overlap (RecursiveCharacterTextSplitter).
+     - Each chunk is converted into a 384-number vector by all-MiniLM-L6-v2,
+       which runs locally.
+     - The chunks, vectors, file name and page number are saved in the
+       MongoDB Atlas "chunks" collection.
+     - Spreadsheet rows are also saved as SQL tables in SQLite.
+     - Uploads are all-or-nothing: if any step fails, nothing is left behind.
+
+  b) Question answering (LangGraph agent)
+     - plan_sql: if spreadsheet tables exist, the LLM is given the table
+       schema plus sample rows and asked to write one SQL SELECT, or none.
+       The query runs read-only, with a 5-second limit and at most 200 rows.
+       If it fails, the LLM gets the error message and one chance to fix the
+       query.
+     - retrieve: if no SQL answer is possible, Atlas Vector Search finds the
+       4 most similar chunks.
+     - generate: the LLM writes the answer from the SQL rows or the chunks,
+       with citations, and streams it to the browser.
+
+  c) User interface
+     - The sidebar has upload (drag and drop), the document list (click a
+       file to select it) and the conversation history.
+     - The chat area shows the streamed answers, source chips (click to see
+       the exact excerpt) and the Query panel (SQL query and results table).
+     - The dashboard shows speed charts and usage statistics.
+
+Difference from uploading a PDF to a normal AI chatbot:
+  - The files stay in your own database and are reused across chats, with no
+    re-uploading.
+  - It works with many files at once, even when they are too large for one
+    AI prompt.
+  - Every answer is cited and shows the query used, so it can be verified.
+  - Spreadsheet answers are calculated by SQL, not guessed by the AI.
+  - When the information is missing, it says so instead of inventing an
+    answer.
+
+
+===============================================================================
+3. SYSTEM REQUIREMENTS
+===============================================================================
+3.1 Hardware Requirements
+  - Processor : Intel Core i3 / AMD Ryzen 3 or above
+  - RAM       : 8 GB minimum (the embedding model needs about 500 MB)
+  - Storage   : 2 GB free (Python packages, Node modules, model files)
+  - Network   : Internet connection (for MongoDB Atlas and the Groq API)
+
+3.2 Software Requirements
+  - Operating System : Windows 10/11, Linux or macOS
+  - Python           : 3.11 or above (with the uv package manager)
+  - Node.js          : 20 or above (with npm)
+  - Web Browser      : Chrome, Edge or Firefox (latest)
+  - Code Editor      : VS Code (optional)
+
+3.3 Cloud Services
+  - MongoDB Atlas (free M0 cluster) - document storage + Vector Search
+  - Groq Cloud API (free key)       - fast LLM inference
+
+3.4 Main Libraries / Technologies
+  Backend:
+  - FastAPI, Uvicorn          - REST API and server
+  - LangChain, LangGraph      - RAG pipeline and agent workflow
+  - langchain-groq (ChatGroq) - connection to the LLM
+  - langchain-mongodb         - Atlas Vector Search
+  - sentence-transformers     - all-MiniLM-L6-v2 embeddings
+  - Beanie / PyMongo          - MongoDB data models
+  - SQLite (built in)         - SQL tables for spreadsheets
+  - pypdf, docx2txt, openpyxl    - reading documents
+  - pytest                    - testing
+  Frontend:
+  - React 19, Vite            - user interface
+  - Tailwind CSS v4           - styling
+  - Recharts                  - dashboard charts
+  - lucide-react              - icons
+  - Vitest                    - testing
+
+
+===============================================================================
+4. SYSTEM ARCHITECTURE
+===============================================================================
+The system uses a three-tier client-server architecture.
+
+  +-----------------------+        HTTP / SSE        +-------------------------+
+  |   FRONTEND (React)    | <----------------------> |   BACKEND (FastAPI)     |
+  |  - Upload / Doc list  |                          |  - Upload API           |
+  |  - Chat + Query panel |                          |  - Query API (stream)   |
+  |  - Dashboard          |                          |  - Documents/Stats API  |
+  +-----------------------+                          +-----------+-------------+
+                                                                 |
+          +---------------------------+--------------------------+---------+
+          |                           |                          |         |
+  +-------v--------+   +--------------v---------+   +-----------v-----+   |
+  | Embedding model|   |  MongoDB Atlas         |   | SQLite          |   |
+  | all-MiniLM-L6  |   |  - chunks + vectors    |   | spreadsheet     |   |
+  | (local, 384-d) |   |  - Vector Search index |   | tables          |   |
+  +----------------+   |  - documents, chats    |   +-----------------+   |
+                       +------------------------+                         |
+                                                          +---------------v--+
+                                                          | Groq LLM API     |
+                                                          | gpt-oss-120b     |
+                                                          +------------------+
+
+4.1 Modules
+  1. Ingestion module (app/ingestion)
+       loaders.py  - reads PDF, DOCX, TXT, CSV and XLSX into pages and tables
+       pipeline.py - chunking, embedding, storing, rollback on failure
+  2. RAG module (app/rag)
+       embeddings.py   - the HuggingFace MiniLM model
+       vector_store.py - Atlas Vector Search and the index definition
+       prompts.py      - system prompts (RAG, SQL planner, SQL fix, SQL answer)
+       graph.py        - the LangGraph agent: plan_sql -> retrieve -> generate
+  3. SQL module (app/sql)
+       table_store.py - creates the SQL tables and runs only safe, read-only
+                        SELECT queries
+       planner.py     - describes the schema to the LLM and parses its SQL
+  4. API module (app/api)
+       upload, documents, query (streaming), conversations, stats
+  5. Data models (app/models) - Document, Conversation, Message (Beanie)
+  6. Frontend (frontend/src) - Sidebar, ChatView, MessageBubble, QueryPanel,
+       DocumentList, Dashboard
+
+4.2 LangGraph Agent Graph
+         START
+           |
+       [plan_sql] ---- SQL worked ----> [generate] --> END
+           |
+       no SQL / failed
+           |
+       [retrieve] ------------------------> [generate] --> END
+
+4.3 Data Storage
+  - MongoDB "documents"     : file name, type, size, number of chunks
+  - MongoDB "chunks"        : text, embedding (384 floats), file name, page,
+                              document_id
+  - MongoDB "conversations" / "messages" : chat history, queries, timing
+                              metrics
+  - SQLite "tables.db"      : one table per CSV file or Excel sheet, plus a
+                              catalog table
+
+4.4 Security
+  - The SQL connection is read-only (mode=ro, query_only).
+  - Only a single SELECT or WITH statement is allowed.
+  - Queries are stopped after 5 seconds.
+  - API keys are kept in a .env file that is never committed to git.
+
+
+===============================================================================
+5. SYSTEM USAGE
+===============================================================================
+Step 1 - Start the application (see the run commands in the viva guide).
+Step 2 - Open http://localhost:5173 in the browser.
+Step 3 - Upload a document: drag a PDF, DOCX, TXT, CSV or XLSX file onto the
+         upload box, or click it to choose a file (up to 20 MB). The file
+         appears in the document list with its number of chunks.
+         [Screenshot: upload]
+Step 4 - Ask a question in the chat box, for example:
+           "How many days of annual leave do employees get?"
+           "What is the total revenue in Q2?"
+           "Who is the top manager in Q1?"
+Step 5 - Read the answer:
+           - The Query panel shows the SQL query and its results table.
+           - The answer streams in word by word, with citations like
+             [handbook.pdf p.2].
+           - Click a source chip to see the exact excerpt.
+         [Screenshot: chat with query panel]
+Step 6 - Optional: click a file in the sidebar to select it. It is
+         highlighted, and its name appears in the chat box ("Ask about
+         handbook.pdf..."). That file is searched first; click it again or
+         the X to go back to all documents.
+Step 7 - Ask follow-up questions ("And in Q1?"). The conversation is
+         remembered.
+Step 8 - Open the Dashboard to see the response time, time to first word,
+         tokens per second and usage counts.
+         [Screenshot: dashboard]
+Step 9 - Delete a document with its trash icon. Its chunks and SQL tables are
+         removed too.
+
+
+===============================================================================
+6. FLOW CHART DIAGRAM
+===============================================================================
+6.1 Document Upload Flow
+  +--------------+
+  |    START     |
+  +------+-------+
+         v
+  +--------------+
+  | User uploads |
+  |    a file    |
+  +------+-------+
+         v
+  +--------------------+   No    +---------------------+
+  | Supported type and |-------->| Show error message  |
+  |   size <= 20 MB?   |         +---------------------+
+  +------+-------------+
+         | Yes
+         v
+  +--------------------------+
+  | Extract text (pages/rows)|
+  +------+-------------------+
+         v
+  +--------------------------+
+  | Split into chunks        |
+  | (1000 chars, 150 overlap)|
+  +------+-------------------+
+         v
+  +--------------------------+
+  | Create embeddings        |
+  | (MiniLM, 384 numbers)    |
+  +------+-------------------+
+         v
+  +--------------------------+
+  | Store in MongoDB Atlas   |
+  +------+-------------------+
+         v
+  +--------------------+  Yes  +------------------------+
+  | CSV / Excel file?  |------>| Create SQLite tables   |
+  +------+-------------+       +-----------+------------+
+         | No                              |
+         v                                 v
+  +------------------------------------------+
+  |  Show the file in the document list      |
+  +------+-----------------------------------+
+         v
+       [END]
+
+6.2 Question Answering Flow
+  +--------------+
+  |    START     |
+  +------+-------+
+         v
+  +--------------------------+
+  | User asks a question     |
+  +------+-------------------+
+         v
+  +--------------------+  No
+  | Spreadsheet tables |-------------------------+
+  |      exist?        |                         |
+  +------+-------------+                         |
+         | Yes                                   |
+         v                                       |
+  +--------------------------+                   |
+  | LLM writes a SQL SELECT  |                   |
+  +------+-------------------+                   |
+         v                                       |
+  +--------------------+  No (after 1 retry)     |
+  | SQL ran correctly? |-------------------------+
+  +------+-------------+                         |
+         | Yes                                   v
+         |                         +---------------------------+
+         |                         | Vector Search: top 4      |
+         |                         | chunks (selected file     |
+         |                         | first, if one is chosen)  |
+         |                         +-------------+-------------+
+         v                                       v
+  +--------------------------------------------------+
+  | Show the Query panel (SQL query + results table) |
+  +------+-------------------------------------------+
+         v
+  +--------------------------------------------------+
+  | LLM writes the answer from rows/chunks + citation|
+  +------+-------------------------------------------+
+         v
+  +--------------------------------------------------+
+  | Stream the answer word by word; save the message |
+  | and metrics                                      |
+  +------+-------------------------------------------+
+         v
+       [END]
+
+6.3 Use the Mermaid code below (paste it into https://mermaid.live) to draw
+    the diagram neatly for the report:
+
+  flowchart TD
+    A[User question] --> B{Spreadsheet tables?}
+    B -- Yes --> C[LLM writes SQL]
+    C --> D{SQL ok?}
+    D -- Yes --> G[Generate answer from rows]
+    D -- No --> E[Atlas Vector Search top 4]
+    B -- No --> E
+    E --> F[Generate answer from chunks]
+    G --> H[Stream answer + query panel]
+    F --> H
+
+
+===============================================================================
+7. MODEL EVALUATION
+===============================================================================
+7.1 Models Used
+  - Embedding model: sentence-transformers/all-MiniLM-L6-v2
+      * 384-dimensional vectors; cosine similarity
+      * Small (about 80 MB) and fast; runs on the CPU
+  - Large language model: openai/gpt-oss-120b on Groq LPU
+      * Chosen because Groq retired the Llama 3 models named in the brief
+      * Very fast token generation; supports streaming
+      * temperature 0 for consistent answers
+
+7.2 Evaluation Metrics (measured live for every answer and shown on the
+    dashboard)
+  - Time to First Token (TTFT): seconds until the first word appears
+  - Total response time: seconds until the answer is complete
+  - Tokens per second: generation speed
+  - Chunks retrieved: the number of passages used (0 for SQL answers)
+  [Fill in from the dashboard: average TTFT ___ s, average total time ___ s,
+   average tokens/sec ___ ]
+
+7.3 Accuracy Testing (manual tests on sample files)
+  +------------------------------------------+-------------------+--------+
+  | Question                                 | Expected          | Result |
+  +------------------------------------------+-------------------+--------+
+  | How many annual leave days? (handbook)   | 24 days, p.2      | Pass   |
+  | Total revenue in Q2? (sales.xlsx)        | 326500 (via SQL)  | Pass   |
+  | Top manager in Q1?                       | Priya (via SQL)   | Pass   |
+  | Follow-up: "And in Q1?"                  | 303000            | Pass   |
+  | Question not in the documents            | "I couldn't find  | Pass   |
+  |                                          |  that..."         |        |
+  | Selected xlsx, asked about leave         | 24 days from the  | Pass   |
+  |                                          |  handbook         |        |
+  +------------------------------------------+-------------------+--------+
+
+7.4 Software Testing
+  - Backend : 135 automated tests (pytest), all passing. They cover the
+    loaders, chunking, SQL safety, the SQL planner, the LangGraph flow, the
+    APIs and the vector store.
+  - Frontend: 31 automated tests (Vitest), all passing. They cover the query
+    panel, chat, document list, API client and message bubbles.
+  - Safety tests: DELETE, UPDATE and multiple statements are always
+    rejected.
+
+7.5 Why RAG + SQL performs better than the LLM alone
+  - The LLM alone cannot see private files, so it guesses.
+  - RAG gives it the right passages, so the answers are grounded and cited.
+  - The LLM is weak at arithmetic over many rows, so SQL computes exact
+    totals.
+
+
+===============================================================================
+8. USE CASE
+===============================================================================
+8.1 Actors
+  - User (student, employee, analyst, manager)
+  - System (backend + AI)
+
+8.2 Use Cases
+  UC1 Upload document        - User uploads a file; the system indexes it.
+  UC2 View / delete document - User sees the uploaded files and removes
+                               unwanted ones.
+  UC3 Ask question           - User asks; the system answers with citations.
+  UC4 View query and results - User sees the SQL query and the results
+                               table.
+  UC5 Select a file          - User selects a file so it is searched first.
+  UC6 View sources           - User clicks a source chip to read the
+                               excerpt.
+  UC7 Manage conversations   - User opens, continues or deletes past chats.
+  UC8 View dashboard         - User checks speed and usage statistics.
+
+8.3 Use Case Diagram (text form)
+        +------------------------- RAG Data Assistant ----------------------+
+        |   (Upload document)        (Ask question)       (View dashboard)   |
+  User -|   (Delete document)        (View SQL query)     (Manage chats)     |
+        |   (Select a file)          (View sources)                          |
+        +--------------------------------------------------------------------+
+
+8.4 Real-world Use Cases
+  - College: students ask questions about syllabus PDFs, notes and circulars.
+  - HR: employees ask about leave and expense policies in the handbook.
+  - Business: managers ask "total sales by region" from Excel reports
+    without knowing SQL.
+  - Research: quickly find facts across many papers, with page references.
+  - Customer support: agents look up answers in product manuals.
+
+
+===============================================================================
+9. SOURCE CODE
+===============================================================================
+(Paste the important parts of these files into the report.)
+
+9.1 Project Structure
+  backend/app/
+    main.py               - FastAPI app, startup, health check
+    core/config.py        - settings from .env
+    core/database.py      - MongoDB connections
+    ingestion/loaders.py  - file readers
+    ingestion/pipeline.py - chunk, embed, store
+    rag/embeddings.py     - MiniLM embeddings
+    rag/vector_store.py   - Atlas Vector Search
+    rag/prompts.py        - prompts
+    rag/graph.py          - LangGraph agent (core logic)
+    sql/table_store.py    - SQL tables + safe execution
+    sql/planner.py        - schema description for the LLM
+    api/*.py              - REST endpoints
+    models/*.py           - database models
+  frontend/src/
+    App.jsx, components/ChatView.jsx, MessageBubble.jsx, QueryPanel.jsx,
+    DocumentList.jsx, Sidebar.jsx, Dashboard.jsx, services/api.js
+
+9.2 Key Code Snippets to Include
+  a) Chunking (ingestion/pipeline.py)
+       _splitter = RecursiveCharacterTextSplitter(chunk_size=1000,
+                                                  chunk_overlap=150)
+  b) The LangGraph graph (rag/graph.py)
+       graph.add_node("plan_sql", plan_sql)
+       graph.add_node("retrieve", retrieve)
+       graph.add_node("generate", generate)
+       graph.add_edge(START, "plan_sql")
+       graph.add_conditional_edges("plan_sql",
+           lambda s: "generate" if s["sql_ok"] else "retrieve")
+       graph.add_edge("retrieve", "generate")
+       graph.add_edge("generate", END)
+  c) SQL safety check (sql/table_store.py - validate_select)
+       Only one statement; it must start with SELECT or WITH; the
+       connection is read-only.
+  d) Vector search (rag/vector_store.py - ChunkStore.search)
+       similarity_search_with_score(query, k=4, pre_filter=...)
+  e) Streaming response (api/query.py)
+       StreamingResponse(_events(...), media_type="text/event-stream")
+  f) Query panel (frontend/src/components/QueryPanel.jsx)
+       Shows the query in a code box and the results in a table.
+
+
+===============================================================================
+10. OUTPUT
+===============================================================================
+Add screenshots with captions:
+  Fig 10.1 Home screen with the upload area and the empty chat
+  Fig 10.2 Document list after uploading a PDF and an Excel file
+  Fig 10.3 PDF question: SQL-style query panel, answer and citation
+  Fig 10.4 Excel question: SQL query with the results table and exact total
+  Fig 10.5 Selected file highlighted, with "Ask about <file>" in the chat
+           box
+  Fig 10.6 Source chip expanded, showing the exact excerpt
+  Fig 10.7 "I couldn't find that in your documents." for an unrelated
+           question
+  Fig 10.8 Dashboard with speed and usage charts
+  Fig 10.9 All tests passing in the terminal (pytest / vitest)
+(The screenshots in docs/screenshots/chat.png and dashboard.png can be used.)
+
+
+===============================================================================
+11. CONCLUSION
+===============================================================================
+The RAG Data Assistant combines Retrieval-Augmented Generation with Natural
+Language to SQL to answer questions from a user's own documents accurately.
+
+Semantic embeddings and MongoDB Atlas Vector Search find the right passages
+by meaning, and the LLM on Groq writes fast, streamed answers with citations.
+For spreadsheet data, the NL-to-SQL module turns plain-English questions into
+safe, read-only SQL queries, so numeric answers are exact rather than
+estimated.
+
+Showing the query and its results for every answer makes the system
+transparent and trustworthy. Refusing to answer when the information is
+missing reduces hallucination. The project meets its objectives and is
+backed by 166 passing automated tests. It shows how modern AI tools
+(LangChain, LangGraph, vector databases and fast LLM inference) can be
+combined into a practical application for colleges, offices and businesses.
+
+
+===============================================================================
+12. FUTURE ENHANCEMENTS
+===============================================================================
+  1. User login and per-user documents (authentication and access control).
+  2. OCR support for scanned PDFs and images (e.g. Tesseract).
+  3. Support for more formats: PPTX, HTML, old .xls files, and web links.
+  4. Charts generated automatically from SQL results (bar or line graphs).
+  5. Connecting to real company databases (MySQL/PostgreSQL) for NL-to-SQL.
+  6. Multilingual questions and answers (Tamil, Hindi, etc.).
+  7. Voice input and spoken answers.
+  8. Hybrid search (keyword + vector) and re-ranking for better retrieval.
+  9. Cloud deployment (Docker, Render/AWS) and a mobile app.
+  10. Answer-quality evaluation with tools such as RAGAS.
+
+
+===============================================================================
+13. REFERENCE
+===============================================================================
+  1. Lewis, P. et al., "Retrieval-Augmented Generation for Knowledge-Intensive
+     NLP Tasks", NeurIPS 2020.
+  2. Reimers, N. & Gurevych, I., "Sentence-BERT: Sentence Embeddings using
+     Siamese BERT-Networks", EMNLP 2019.
+  3. LangChain documentation - https://python.langchain.com
+  4. LangGraph documentation - https://langchain-ai.github.io/langgraph
+  5. MongoDB Atlas Vector Search - https://www.mongodb.com/docs/atlas/atlas-vector-search
+  6. Groq API documentation - https://console.groq.com/docs
+  7. Hugging Face, all-MiniLM-L6-v2 - https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2
+  8. FastAPI documentation - https://fastapi.tiangolo.com
+  9. React documentation - https://react.dev
+  10. Tailwind CSS documentation - https://tailwindcss.com
+  11. SQLite documentation - https://www.sqlite.org/docs.html
+  12. Beanie ODM documentation - https://beanie-odm.dev

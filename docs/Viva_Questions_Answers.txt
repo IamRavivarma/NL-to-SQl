@@ -1,0 +1,820 @@
+===============================================================================
+      VIVA QUESTIONS AND ANSWERS - RAG DATA ASSISTANT (WITH NL-TO-SQL)
+===============================================================================
+Sections:
+  A. Project basics
+  B. AI / LLM concepts
+  C. RAG (Retrieval-Augmented Generation)
+  D. Embeddings and vector search
+  E. Chunking and document loading
+  F. NL-to-SQL
+  G. LangChain and LangGraph
+  H. Backend (FastAPI, Python)
+  I. Database (MongoDB Atlas, Beanie, SQLite)
+  J. Frontend (React, Vite, Tailwind)
+  K. Streaming and performance
+  L. Security and safety
+  M. Testing and evaluation
+  N. Features in this app
+  O. Challenges, limitations and future scope
+  P. General / tricky questions
+
+
+===============================================================================
+A. PROJECT BASICS
+===============================================================================
+1. What is your project?
+   A web app called RAG Data Assistant. Users upload PDF, Word, text, CSV
+   or Excel files and ask questions in plain English. The AI answers only
+   from those files, with page citations. For spreadsheets it converts the
+   question into a SQL query, so numbers are exact. Every answer shows the
+   query used and its results.
+
+2. What problem does it solve?
+   Reading long documents or big spreadsheets to find one fact is slow.
+   Normal AI chatbots don't know your private files and can make up
+   answers. This app finds the answer in your own files in seconds and
+   shows where it came from.
+
+3. What is the objective of the project?
+   To build a question-answering system over the user's own documents that
+   is accurate, cites its sources, gives exact numbers for tabular data,
+   streams answers in real time and avoids hallucination.
+
+4. Who are the users?
+   Students and colleges (syllabus, notes, circulars), office employees
+   (HR policies), managers and analysts (Excel sales reports),
+   researchers (papers) and customer-support teams (manuals).
+
+5. Why is the project titled "NL to SQL"?
+   One key module converts Natural Language questions into SQL queries for
+   spreadsheet data. The app also shows a SQL-style query for document
+   searches, so every answer is shown as a query plus results.
+
+6. What are the main modules?
+   (1) Ingestion: load, chunk, embed and store files.
+   (2) RAG: retrieve the relevant chunks and generate the answer.
+   (3) NL-to-SQL: turn questions into safe SELECT queries on the
+       spreadsheet tables.
+   (4) API: upload, documents, query (streaming), conversations, stats.
+   (5) Frontend: chat, query panel, document list, dashboard.
+
+7. What technology stack did you use?
+   Frontend: React 19, Vite, Tailwind CSS v4, Recharts.
+   Backend: Python 3.11, FastAPI, LangChain, LangGraph.
+   AI: ChatGroq (openai/gpt-oss-120b) and HuggingFace all-MiniLM-L6-v2
+   embeddings.
+   Database: MongoDB Atlas with Vector Search (Beanie ODM), plus SQLite
+   for the spreadsheet tables.
+   Testing: pytest and Vitest.
+
+8. Which file types are supported?
+   PDF, DOCX, TXT, CSV and XLSX, up to 20 MB each. Old .xls files must be
+   saved as .xlsx first.
+
+9. How is your project different from ChatGPT?
+   - ChatGPT doesn't know your private files. Uploads are temporary and
+     size-limited.
+   - Our app stores the files permanently and searches many files at
+     once.
+   - Every answer cites the file and page and shows the query.
+   - Spreadsheet maths is done by SQL, so it is exact. An LLM's own
+     arithmetic can be wrong.
+   - It says "I couldn't find that in your documents." instead of
+     guessing.
+
+10. What is the architecture of your project?
+    A three-tier client-server design:
+    - The React frontend talks to the FastAPI backend over HTTP and SSE.
+    - The backend uses the local MiniLM embedding model, MongoDB Atlas
+      (data and vectors), SQLite (spreadsheet tables) and the Groq API
+      (the LLM).
+
+
+===============================================================================
+B. AI / LLM CONCEPTS
+===============================================================================
+11. What is an LLM?
+    A Large Language Model: a neural network trained on huge amounts of
+    text to predict the next word. It can answer questions, summarise text
+    and write code. Examples: GPT, Llama, gpt-oss.
+
+12. Which LLM did you use and why?
+    openai/gpt-oss-120b, an open-weight 120-billion-parameter model served
+    on Groq. Groq is very fast, and the Llama 3 models named in the
+    original brief were retired by Groq. The model is a setting
+    (GROQ_MODEL), so it can be changed without code changes.
+
+13. What is Groq?
+    A company that runs LLMs on its own chips, called LPUs (Language
+    Processing Units). They are designed for very fast inference, which
+    gives quick answers.
+
+14. What is hallucination?
+    When an AI gives a confident but false answer that is not based on
+    facts.
+
+15. How does your project reduce hallucination?
+    - The AI receives only the retrieved passages or SQL rows.
+    - The prompt tells it to answer only from that context and to say
+      "I couldn't find that in your documents." otherwise.
+    - Temperature is 0.
+    - Every answer must cite [file p.N].
+    - Numbers come from SQL, not from the AI's own arithmetic.
+
+16. What is temperature?
+    A setting that controls randomness. 0 gives the most predictable,
+    focused answers; higher values are more creative. We use 0.
+
+17. What is a prompt? What is a system prompt?
+    A prompt is the text input given to the LLM. The system prompt holds
+    the fixed rules for how the AI should behave; ours says "answer only
+    from the context, cite sources". The user's question and the context
+    are added after it.
+
+18. What is prompt engineering?
+    Designing prompts carefully to get the right behaviour. For example,
+    our SQL planner prompt asks for JSON like {"sql": "..."} or
+    {"sql": null}, and our RAG prompt fixes the citation format.
+
+19. What is a token?
+    A small piece of text, roughly a word or part of a word. LLMs read and
+    write tokens. Speed is measured in tokens per second.
+
+20. What is a context window?
+    The maximum number of tokens an LLM can read at once. Large documents
+    don't fit, which is why we retrieve only the relevant chunks.
+
+21. What is fine-tuning? Did you fine-tune?
+    Fine-tuning re-trains a model on new data. We did not fine-tune; RAG
+    gives the model new knowledge at question time. It is cheaper, faster
+    and updates instantly when a new file is uploaded.
+
+22. RAG vs fine-tuning: which is better here?
+    RAG. The documents change often, answers need citations, and there is
+    no training cost. Fine-tuning suits changing the model's style or
+    behaviour, not adding frequently changing facts.
+
+23. What is inference?
+    Using a trained model to produce output, for example generating an
+    answer.
+
+24. What is an open-weight model?
+    A model whose trained weights are published, so anyone can run it.
+    gpt-oss-120b is open-weight.
+
+
+===============================================================================
+C. RAG (RETRIEVAL-AUGMENTED GENERATION)
+===============================================================================
+25. What is RAG?
+    Retrieval-Augmented Generation.
+    - Retrieve the relevant information from a knowledge source.
+    - Augment the prompt with it.
+    - The LLM generates an answer grounded in that information.
+
+26. Why use RAG?
+    LLMs don't know private or recent data, have limited context windows
+    and can hallucinate. RAG solves all three by giving the model only the
+    relevant, real data.
+
+27. What are the steps of RAG in your project?
+    Load the document, chunk it, embed the chunks and store them in Atlas.
+    At question time: embed the question, run a vector search (top 4),
+    build the prompt (rules + chunks + history + question), and let the
+    LLM generate the answer with citations, streamed to the user.
+
+28. Who proposed RAG?
+    Patrick Lewis et al. (Facebook AI Research), in the paper
+    "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks",
+    NeurIPS 2020.
+
+29. How many chunks do you retrieve? Why 4?
+    The top 4 (TOP_K = 4). That is enough context to answer most questions
+    while keeping the prompt small, fast and focused. Too many chunks add
+    noise; too few can miss the answer.
+
+30. What happens if the answer is not in the documents?
+    The model replies "I couldn't find that in your documents." It does
+    not guess.
+
+31. How are citations produced?
+    Each chunk is given to the LLM with its file name and page. The prompt
+    asks it to cite them as [file p.N]. The sources are also sent to the
+    frontend as clickable chips showing the exact excerpt.
+
+32. What is "grounding"?
+    Making the AI's answer depend on given evidence (the retrieved text)
+    rather than on its memory.
+
+33. What is the difference between retrieval and generation?
+    Retrieval finds the relevant text; it is a search with no AI writing.
+    Generation is the LLM writing the answer from that text.
+
+34. How are follow-up questions handled?
+    The last 6 messages of the conversation (HISTORY_LIMIT = 6) are sent
+    with the new question, so "And in Q1?" is understood in context.
+
+35. Does the AI see the whole document?
+    No. It sees only the 4 retrieved chunks (or the SQL result rows). This
+    keeps it fast, cheap and focused.
+
+
+===============================================================================
+D. EMBEDDINGS AND VECTOR SEARCH
+===============================================================================
+36. What is an embedding?
+    A list of numbers (a vector) that represents the meaning of a text.
+    Texts with similar meaning get vectors that are close together.
+
+37. Which embedding model did you use?
+    sentence-transformers/all-MiniLM-L6-v2 from HuggingFace.
+
+38. Why MiniLM?
+    It is small (about 80 MB), fast, free, runs locally on the CPU and
+    gives good-quality sentence embeddings. No API cost, and the document
+    text is not sent to anyone just for embedding.
+
+39. What is the dimension of your embeddings?
+    384 numbers per chunk.
+
+40. What is "L6" in all-MiniLM-L6-v2?
+    It has 6 transformer layers, a compact version distilled from a larger
+    model.
+
+41. What is Sentence-BERT / sentence-transformers?
+    A method and library (Reimers and Gurevych, 2019) that produces
+    meaningful sentence-level embeddings from BERT-like models.
+
+42. What is vector search?
+    Finding the stored vectors that are closest to the question's vector.
+    It matches by meaning, not exact words.
+
+43. What is cosine similarity?
+    A measure of the angle between two vectors: cos = (A . B) / (|A| |B|).
+    1 means the same direction (same meaning) and 0 means unrelated. Our
+    Atlas index uses cosine similarity.
+
+44. Semantic search vs keyword search?
+    Keyword search matches exact words. Semantic (vector) search matches
+    meaning, so "holidays" can find "annual leave".
+
+45. What is a vector database?
+    A database that stores vectors and finds the nearest ones quickly. We
+    use MongoDB Atlas Vector Search.
+
+46. What is ANN (Approximate Nearest Neighbour)?
+    A fast search method that finds nearly the closest vectors without
+    comparing against every vector. Atlas uses the HNSW algorithm for
+    this.
+
+47. What is numCandidates?
+    The number of candidate vectors Atlas considers before returning the
+    top results. We use 100 candidates (4 x 25 oversampling) and return 4.
+    More candidates means better accuracy, but slower.
+
+48. What is the Atlas vector index definition?
+    Index "vector_index" on the field "embedding": 384 dimensions, cosine
+    similarity, plus a filter field "document_id" so the search can be
+    limited to one file. The backend creates or updates it on startup.
+
+49. Is the question embedded with the same model?
+    Yes. The question and the chunks must use the same model, or their
+    vectors cannot be compared.
+
+50. What does the "Score" column in the query panel mean?
+    The vector-search similarity score between the question and that
+    chunk. Higher means more relevant.
+
+
+===============================================================================
+E. CHUNKING AND DOCUMENT LOADING
+===============================================================================
+51. What is chunking?
+    Splitting a document into small pieces (chunks) so each can be
+    embedded and searched separately.
+
+52. What chunk size and overlap did you use?
+    1000 characters per chunk, with a 150-character overlap.
+
+53. Why overlap?
+    So a sentence or idea that falls on a chunk boundary still appears
+    complete in at least one chunk.
+
+54. Which text splitter did you use?
+    LangChain's RecursiveCharacterTextSplitter. It splits on paragraphs
+    first, then sentences, then words, keeping the text natural.
+
+55. What happens if chunks are too big or too small?
+    Too big: the search is less precise and the prompt is longer. Too
+    small: context is lost and answers become incomplete.
+
+56. How are PDFs read?
+    With pypdf, page by page, so every chunk keeps its page number for
+    citations.
+
+57. How are Word files read?
+    With docx2txt, which extracts all the text. The file counts as one
+    page.
+
+58. How are text files read?
+    The app tries UTF-8, UTF-16 and Windows-1252 encodings, so files from
+    different editors work.
+
+59. How are CSV and Excel files read?
+    - CSV: the delimiter (comma, semicolon, tab or |) is detected
+      automatically.
+    - Excel: read with openpyxl; each sheet is a "page".
+    - The first non-empty row is the header.
+    - Each row is turned into text like
+      "Name: Priya | Region: North | Revenue: 120000", so every chunk keeps
+      its column names.
+    - The rows are also saved as SQL tables.
+
+60. What if an upload fails halfway?
+    The upload is all-or-nothing: the stored chunks and the document
+    record are rolled back, so no half document is left behind.
+
+61. What metadata is stored with each chunk?
+    The text, the embedding, the file name, the page number, the
+    document_id and the chunk index.
+
+
+===============================================================================
+F. NL-TO-SQL
+===============================================================================
+62. What is NL-to-SQL?
+    Converting a Natural Language question into an SQL query. For example,
+    "What is the total revenue in Q2?" becomes
+    SELECT SUM(revenue) FROM sales WHERE quarter = 'Q2'.
+
+63. Why do you need SQL when you already have RAG?
+    RAG retrieves only 4 chunks, so it cannot add up 500 rows. LLMs also
+    make arithmetic mistakes. SQL computes totals, counts, averages and
+    rankings exactly over all rows.
+
+64. Where are spreadsheet tables stored?
+    In SQLite (backend/data/tables.db). There is one table per CSV file
+    or Excel sheet, plus a "_catalog" table describing each table.
+
+65. How are table and column names created?
+    They are cleaned into safe SQL names. For example, "Revenue (Rs)"
+    becomes "revenue" and "2024 Sales" becomes "t_2024_sales". Duplicates
+    get _2, _3. The table name is the file name plus the sheet name.
+
+66. How are column types decided?
+    Automatically: INTEGER if all values are whole numbers that fit in
+    64 bits, REAL for decimals, and TEXT otherwise. Values like "007" stay
+    TEXT so leading zeros are kept.
+
+67. How does the LLM know the table structure?
+    We send it the schema: the table names, file, row count, each column
+    with its type and original header, and 3 sample rows. This is
+    sometimes called "schema linking".
+
+68. What does the LLM return?
+    JSON: {"sql": "SELECT ..."} if the question is about the tables, or
+    {"sql": null} if it is not.
+
+69. What if the SQL has an error?
+    The error message is sent back to the LLM with SQL_FIX_PROMPT, and it
+    gets one retry. If that also fails, the app falls back to document
+    search, and the query panel shows the error.
+
+70. How is the final answer created from SQL?
+    The result rows are given to the LLM with SQL_ANSWER_PROMPT, and it
+    explains the result in plain English with a citation to the
+    spreadsheet.
+
+71. How many rows are returned?
+    Up to 200 rows are fetched and 50 are shown in the results table. The
+    panel says "Showing 50 of 200+ rows" when there are more.
+
+72. Can the user see the SQL?
+    Yes. The query panel shows the SQL query (with a Copy button) and the
+    results table above every answer.
+
+73. What happens for PDF questions in the query panel?
+    The document search (Atlas Vector Search) is also shown as an
+    equivalent SQL-style query: SELECT file, page, score, excerpt FROM
+    chunks ORDER BY score DESC LIMIT 4, followed by the passages it
+    found.
+
+74. How does the app decide between SQL and document search?
+    LangGraph's plan_sql node runs first. If spreadsheet tables exist and
+    the LLM writes SQL that runs successfully, that is used. Otherwise it
+    goes to the retrieve node (vector search).
+
+
+===============================================================================
+G. LANGCHAIN AND LANGGRAPH
+===============================================================================
+75. What is LangChain?
+    A Python framework for building LLM applications. It provides
+    connectors for models (ChatGroq), embeddings, vector stores
+    (MongoDBAtlasVectorSearch) and text splitters.
+
+76. What is LangGraph?
+    A library from the LangChain team that builds AI workflows as a graph
+    of nodes (steps) and edges (transitions), with shared state and
+    conditional branches.
+
+77. What are the nodes in your graph?
+    plan_sql (write and run SQL), retrieve (vector search) and generate
+    (write the answer).
+
+78. Explain the graph flow.
+    START -> plan_sql. If SQL succeeded, go to generate; otherwise go to
+    retrieve -> generate. Then END.
+
+79. What is the "state" in LangGraph?
+    A shared dictionary passed between nodes: question, history, sql_runs,
+    sql_ok, hits, searches, answer.
+
+80. What is a conditional edge?
+    An edge that chooses the next node from the state. Ours checks
+    state["sql_ok"].
+
+81. Why LangGraph instead of a simple chain?
+    Our flow has a decision (SQL or search) and a fallback. A graph makes
+    this branching clear, testable and easy to extend.
+
+82. What is ChatGroq?
+    The LangChain chat-model class for Groq models (from the langchain-groq
+    package).
+
+83. Is this an "agent"?
+    It is an agentic workflow: the LLM decides whether to write SQL, and
+    the graph routes to different tools (the SQL database or the vector
+    store) based on the result.
+
+
+===============================================================================
+H. BACKEND (FASTAPI, PYTHON)
+===============================================================================
+84. Why FastAPI?
+    It is fast, asynchronous, generates API docs automatically, validates
+    requests with Pydantic and supports streaming responses easily.
+
+85. What is Uvicorn?
+    An ASGI web server that runs the FastAPI app.
+
+86. What are your API endpoints?
+    - POST /api/upload: upload and index a file.
+    - GET /api/documents and DELETE /api/documents/{id}.
+    - POST /api/query: ask a question (streams SSE).
+    - GET and DELETE /api/conversations(/{id}).
+    - GET /api/stats: dashboard data.
+    - GET /health: health check.
+
+87. What is Pydantic?
+    A data-validation library. Request bodies like QueryRequest(question,
+    conversation_id, document_id) are checked automatically.
+
+88. What is async / await?
+    Python's way to handle many requests at once without blocking. While
+    waiting for the database or the LLM, the server can serve others.
+
+89. What is run_in_threadpool for?
+    Some code is blocking (SQLite, embeddings, vector search).
+    run_in_threadpool runs it in a background thread, so the async server
+    is not blocked.
+
+90. Where are settings and secrets stored?
+    In backend/.env (MONGODB_URI, GROQ_API_KEY, GROQ_MODEL, ...), read by
+    pydantic-settings. .env is in .gitignore, so it is never committed.
+
+91. What is dependency injection in FastAPI?
+    FastAPI's Depends() supplies objects like the chunk store, the LLM and
+    the table store to endpoints. Tests can replace them with fakes.
+
+92. What is uv?
+    A fast Python package manager. "uv sync" installs the exact versions
+    from uv.lock.
+
+93. What is CORS and did you handle it?
+    Cross-Origin Resource Sharing: browsers block calls from one origin
+    (localhost:5173) to another (localhost:8000) unless the server allows
+    them. FastAPI's CORS middleware allows the frontend's origin.
+
+
+===============================================================================
+I. DATABASE (MONGODB ATLAS, BEANIE, SQLITE)
+===============================================================================
+94. Why MongoDB?
+    It is flexible (JSON-like documents), stores documents, chats and
+    vectors in one place, and Atlas has built-in Vector Search. The free M0
+    tier is enough for this project.
+
+95. What collections do you have?
+    documents (file info), chunks (text + vectors), conversations and
+    messages (chat history, queries and metrics).
+
+96. What is MongoDB Atlas?
+    MongoDB's cloud database service. We use the free M0 cluster.
+
+97. What is Beanie?
+    An async ODM (Object-Document Mapper) for MongoDB built on Pydantic.
+    Our models are Document, Conversation and Message classes.
+
+98. What is an ODM?
+    Object-Document Mapper. It maps Python classes to MongoDB documents,
+    like an ORM does for SQL databases.
+
+99. Why SQLite for the spreadsheets and not MongoDB?
+    SQL is the natural language for exact calculations (SUM, GROUP BY,
+    ORDER BY). SQLite is built into Python, needs no server and is very
+    fast for small and medium tables.
+
+100. SQL vs NoSQL?
+     SQL databases use fixed tables and relations and are queried with SQL
+     (SQLite, MySQL). NoSQL databases are flexible: documents, key-value
+     and so on (MongoDB). We use both, each where it fits best.
+
+101. What happens when a document is deleted?
+     Its record, all its chunks in Atlas and its SQL tables are removed.
+
+102. What is stored in each message?
+     The role (user or assistant), content, sources, queries, the selected
+     file name, and metrics (time to first token, total time, tokens per
+     second, chunks retrieved).
+
+
+===============================================================================
+J. FRONTEND (REACT, VITE, TAILWIND)
+===============================================================================
+103. Why React?
+     It is component-based, widely used and has a fast virtual DOM; the UI
+     updates instantly as tokens arrive.
+
+104. What is Vite?
+     A fast development server and build tool for frontend apps
+     (npm run dev).
+
+105. What is Tailwind CSS?
+     A utility-first CSS framework: styles are written as classes like
+     "rounded-lg bg-canvas" directly in the JSX.
+
+106. What is Recharts?
+     A React chart library, used for the dashboard graphs.
+
+107. What are the main components?
+     App, Sidebar (upload, document list, chats), ChatView, MessageBubble,
+     QueryPanel (query + results table), DocumentList, FileUpload and
+     Dashboard.
+
+108. What is a React hook? Which ones did you use?
+     Functions that add state and behaviour to components. For example,
+     useState (selected file, messages, an open or closed panel) and
+     useEffect (loading data).
+
+109. How does file selection work in the UI?
+     Clicking a file highlights it (coloured background, ring and check
+     mark), and the chat box shows "Ask about <file>". Its id is sent as
+     document_id. Clicking it again, or the X, clears the selection.
+
+110. How does the frontend read the streamed answer?
+     It uses fetch() with a streaming reader, splits the SSE events (meta,
+     token, done) and adds each token to the message as it arrives.
+
+
+===============================================================================
+K. STREAMING AND PERFORMANCE
+===============================================================================
+111. What is SSE (Server-Sent Events)?
+     A standard way for a server to push a stream of events to the browser
+     over one HTTP response. We use it to send the answer word by word.
+
+112. What events do you send?
+     - meta: conversation id, sources and queries.
+     - token: each piece of the answer.
+     - done: message id, metrics, sources and queries.
+
+113. Why streaming?
+     The user sees the answer start in about a second instead of waiting
+     for the whole answer, which feels much faster.
+
+114. SSE vs WebSocket?
+     SSE is one-way (server to client) and plain HTTP, which is simpler.
+     WebSocket is two-way. We only need one-way streaming, so SSE is
+     enough.
+
+115. What metrics do you measure?
+     - TTFT (time to first token): how long until the first word.
+     - Total time.
+     - Tokens per second.
+     - Chunks retrieved.
+     All are shown on the dashboard.
+
+116. What was the tokens/second bug?
+     The model "thinks" (reasoning tokens) before writing visible text, so
+     the speed looked impossibly high. Speed is now measured from the start
+     of visible generation.
+
+117. Why is the first question slow?
+     The embedding model loads into memory on first use (10-15 seconds).
+     Later questions are fast.
+
+
+===============================================================================
+L. SECURITY AND SAFETY
+===============================================================================
+118. How do you stop the AI from running harmful SQL (DROP, DELETE)?
+     Three layers:
+     (1) validate_select allows only a single statement starting with
+         SELECT or WITH.
+     (2) The SQLite connection is opened read-only (mode=ro and
+         PRAGMA query_only=ON).
+     (3) There is a 5-second time limit and a 200-row cap.
+
+119. What is SQL injection, and is your app safe from it?
+     SQL injection is when a user's input changes a query maliciously.
+     Even if the AI writes a bad query, it cannot modify data, because the
+     connection is read-only. Internal queries use parameters (?), not
+     string joining.
+
+120. How are API keys protected?
+     They are stored in the .env file, which git ignores. They are never
+     sent to the frontend.
+
+121. How do you validate uploads?
+     The file type must be pdf, docx, txt, csv or xlsx, and the size at
+     most 20 MB. Empty or unreadable files give a clear error.
+
+122. What is prompt injection?
+     When text inside a document tries to give the AI new instructions. Our
+     system prompt fixes the AI's rules, and SQL is restricted to read-only,
+     which limits the damage.
+
+
+===============================================================================
+M. TESTING AND EVALUATION
+===============================================================================
+123. How did you test the project?
+     - 135 automated backend tests (pytest).
+     - 31 frontend tests (Vitest).
+     - Live end-to-end checks with the real Atlas database and Groq.
+
+124. What do the backend tests cover?
+     File loaders, chunking, type detection, SQL safety, the SQL planner,
+     the LangGraph flow (SQL, fallback, file selection), the APIs, the
+     vector store and the upload rollback.
+
+125. What is TDD?
+     Test-Driven Development: write a failing test first, then the code to
+     pass it, then clean up. It was used for this project's features.
+
+126. What are fakes / mocks in your tests?
+     Fake objects replace the real LLM and vector store (ScriptedChatModel,
+     FakeChunkStore), so the tests are fast, free and repeatable without
+     internet.
+
+127. How did you evaluate accuracy?
+     With known questions on sample files. For example, leave days = 24
+     (handbook p.2), Q2 total revenue = 326500 via SQL, top Q1 manager =
+     Priya, and the follow-up "And in Q1?" = 303000. Questions outside the
+     documents correctly got "I couldn't find that".
+
+128. Which metrics evaluate a RAG system?
+     Retrieval: precision@k and recall@k (are the right chunks found?).
+     Answer: faithfulness (is it based on the context?), relevance and
+     correctness. Speed: TTFT and tokens per second. Tools like RAGAS can
+     automate this; that is future work.
+
+
+===============================================================================
+N. FEATURES IN THIS APP
+===============================================================================
+129. What is the query panel?
+     A box above each answer showing the query used (SQL, or document
+     search written as SQL) and the results table, with a copy button and a
+     row count. It can be collapsed.
+
+130. What is file selection?
+     The user clicks an uploaded file to select it. That file is searched
+     first (2 chunks from it), then the best chunks from all files are
+     added (4 total). The AI is told to prefer the selected file, but it can
+     still use other files if needed.
+
+131. Why not search ONLY the selected file?
+     We tried it, and answers got worse when the selected file didn't
+     contain the answer. "Search it first" gives better results.
+
+132. What are source chips?
+     Small buttons under the answer showing the file and page. Clicking one
+     shows the exact excerpt used.
+
+133. What does the dashboard show?
+     Average and recent response times, time to first word, tokens per
+     second, and counts of documents, chunks and questions, as charts.
+
+134. Are conversations saved?
+     Yes, in MongoDB. You can reopen, continue or delete old chats.
+
+
+===============================================================================
+O. CHALLENGES, LIMITATIONS AND FUTURE SCOPE
+===============================================================================
+135. What challenges did you face?
+     (1) Groq retired Llama 3, so we switched to gpt-oss-120b.
+     (2) The speed metric was wrong because of reasoning tokens, so we
+         measure from the start of visible generation.
+     (3) The network blocked Atlas DNS SRV lookups, so we used the direct
+         server address.
+     (4) Failed uploads left partial data, so uploads are now
+         all-or-nothing.
+     (5) Windows Smart App Control blocked a scikit-learn file, so we
+         pinned version 1.8.0.
+     (6) Huge numbers or values like "007" broke the column-type
+         detection, so we added range and leading-zero checks.
+
+136. What are the limitations?
+     - No login: all users share the same documents.
+     - No OCR, so scanned or image PDFs give no text.
+     - Old .xls files are not supported.
+     - It needs the internet for Atlas and Groq.
+     - Retrieval is limited to 4 chunks, so very broad questions may miss
+       details.
+     - SQL works only on uploaded spreadsheets, not on external databases.
+
+137. What future enhancements are possible?
+     - User login and per-user documents.
+     - OCR for scanned PDFs.
+     - Charts generated from SQL results.
+     - Connecting MySQL/PostgreSQL databases.
+     - Multilingual and voice input.
+     - Hybrid (keyword + vector) search with re-ranking.
+     - Docker and cloud deployment.
+     - Automated quality evaluation (RAGAS).
+
+138. How would you scale it for many users?
+     Add authentication, deploy the backend on cloud servers with several
+     workers, use a larger Atlas tier, move the SQL tables to PostgreSQL,
+     and cache embeddings.
+
+
+===============================================================================
+P. GENERAL / TRICKY QUESTIONS
+===============================================================================
+139. What happens if two files contain conflicting information?
+     Both may be retrieved and cited, and the AI can mention both, so the
+     user can check the sources. Selecting a file makes the AI prefer that
+     file.
+
+140. Can it answer questions that need the whole document (e.g.
+     "summarise the full book")?
+     Only partly, since it sees 4 chunks. Full summaries would need a
+     map-reduce summarising step; that is a possible enhancement.
+
+141. What if the user asks something unrelated, like "Who is the PM of
+     India?"
+     It answers "I couldn't find that in your documents." It doesn't use
+     outside knowledge.
+
+142. Does the data leave the computer?
+     Embedding is local. The chunks are stored in our Atlas database. Only
+     the question plus the retrieved chunks are sent to Groq to generate
+     the answer.
+
+143. What is the cost of running this project?
+     Free for the project scale: the Atlas M0 free tier, the Groq free API
+     key and the local open-source embedding model.
+
+144. Why Python for the backend?
+     Python has the best AI/ML ecosystem (LangChain, sentence-transformers,
+     HuggingFace) and FastAPI for APIs.
+
+145. What did you learn from this project?
+     How LLMs, embeddings, vector databases and SQL can work together; how
+     to build streaming APIs and agent workflows with LangGraph; how to
+     make AI output safe and verifiable; and how to test AI systems with
+     fakes.
+
+146. What is the role of the query in the output screen?
+     Transparency: the user can see exactly how the answer was found (the
+     SQL or the search) and check the raw results, which builds trust.
+
+147. Explain your project in 30 seconds.
+     "Users upload their files. We split them into chunks, convert them
+     into meaning vectors with MiniLM and store them in MongoDB Atlas. For
+     a question, a LangGraph workflow first tries to write a SQL query for
+     spreadsheet data. If that doesn't apply, it searches the vectors for
+     the 4 most relevant chunks. The Groq LLM then writes the answer only
+     from that data, with citations, streamed live, and the query and its
+     results are shown on screen."
+
+148. How do you run the project?
+     Backend:  cd backend
+               .venv\Scripts\python.exe -m uvicorn app.main:app --port 8000
+     Frontend: cd frontend
+               npm run dev
+     Then open http://localhost:5173.
+
+149. How do you run the tests?
+     Backend:  .venv\Scripts\python.exe -m pytest -q   (135 passed)
+     Frontend: npx vitest run                          (31 passed)
+
+150. What is the most important part of your project?
+     The LangGraph workflow in backend/app/rag/graph.py. It decides between
+     SQL and document search, merges the selected file's results, builds the
+     grounded prompt and streams the answer with its queries.

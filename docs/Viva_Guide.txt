@@ -1,0 +1,313 @@
+===============================================================================
+                VIVA GUIDE - RAG DATA ASSISTANT (WITH NL-TO-SQL)
+===============================================================================
+Read this before the viva. Simple explanations first, then technical details,
+then likely questions with answers.
+
+
+-------------------------------------------------------------------------------
+1. ONE-LINE INTRODUCTION (say this first)
+-------------------------------------------------------------------------------
+"My project is a RAG Data Assistant. You upload your own documents (PDF, Word,
+text, CSV or Excel) and ask questions in plain English. The AI answers only
+from those files, cites the page, and for spreadsheets it converts the
+question into a SQL query, so numbers are exact. It shows the query and its
+results for every answer."
+
+
+-------------------------------------------------------------------------------
+2. HOW THE APP WORKS (simple explanation)
+-------------------------------------------------------------------------------
+Think of it as a smart librarian:
+  1. You give the librarian your books (upload files).
+  2. The librarian cuts each book into small paragraphs and remembers what
+     each paragraph is about (chunking + embeddings).
+  3. When you ask a question, the librarian finds the 4 paragraphs that match
+     your question best (vector search).
+  4. The librarian reads only those paragraphs and writes the answer, saying
+     which page it came from (generation with citations).
+  5. For tables (Excel/CSV), the librarian uses a calculator instead of
+     guessing: it writes a SQL query and runs it (NL-to-SQL).
+
+Three parts:
+  - Frontend (React)  : the web page you see - upload, chat, dashboard.
+  - Backend (FastAPI) : the Python server that does all the work.
+  - Cloud services    : MongoDB Atlas (stores the data and vectors) and Groq
+                        (runs the AI model).
+
+
+-------------------------------------------------------------------------------
+3. HOW THE RAG IS BUILT (step by step)
+-------------------------------------------------------------------------------
+RAG = Retrieval-Augmented Generation
+  Retrieval  = find the relevant information in your documents.
+  Augmented  = add that information to the AI's prompt.
+  Generation = the AI writes the answer using that information.
+
+STEP 1 - LOAD (backend/app/ingestion/loaders.py)
+  - PDF  : text extracted page by page (pypdf)
+  - DOCX : all text in the file (docx2txt), counted as one page
+  - TXT  : UTF-8 / UTF-16 / Windows-1252 supported
+  - CSV/XLSX : each row becomes "Column: value | Column: value"; each Excel
+    sheet counts as one page
+
+STEP 2 - CHUNK (backend/app/ingestion/pipeline.py)
+  - RecursiveCharacterTextSplitter: 1000 characters per chunk, 150 overlap.
+  - Why overlap? So a sentence cut at a boundary still appears whole in one
+    chunk.
+
+STEP 3 - EMBED (backend/app/rag/embeddings.py)
+  - Model: sentence-transformers/all-MiniLM-L6-v2 (HuggingFace), runs on the
+    CPU of your own computer.
+  - It turns every chunk into a list of 384 numbers (a vector).
+  - Similar meaning gives similar vectors, so "holidays" matches "annual
+    leave".
+
+STEP 4 - STORE (backend/app/rag/vector_store.py)
+  - MongoDB Atlas "chunks" collection: text + embedding + file name + page +
+    document_id.
+  - Atlas Vector Search index "vector_index": 384 dimensions, cosine
+    similarity, plus a filter on document_id (used when a file is selected).
+  - The index is created automatically when the backend starts.
+
+STEP 5 - RETRIEVE (graph.py, "retrieve" node)
+  - The question is embedded with the same model.
+  - Atlas $vectorSearch returns the top 4 most similar chunks (100
+    candidates are checked first).
+  - If the user selected a file: 2 chunks from that file first, then the best
+    chunks from all files.
+
+STEP 6 - GENERATE (graph.py, "generate" node)
+  - The prompt sent to the LLM contains:
+      system rules + the 4 chunks + recent chat history + the question
+  - Rules: answer ONLY from the context, cite [file p.N], and otherwise say
+    "I couldn't find that in your documents."
+  - LLM: openai/gpt-oss-120b on Groq (ChatGroq), temperature 0, streaming.
+
+STEP 7 - NL-TO-SQL (backend/app/sql/, graph.py "plan_sql" node)
+  - On upload, each CSV file or Excel sheet becomes a SQLite table. Column
+    types (INTEGER/REAL/TEXT) are detected automatically.
+  - On each question, the LLM gets the table schema + 3 sample rows and
+    replies with JSON {"sql": "SELECT ..."}, or null if the question is not
+    about the tables.
+  - Safety: a single SELECT or WITH only, a read-only connection, a 5-second
+    limit and at most 200 rows.
+  - If the SQL fails, the error is sent back to the LLM and it gets one
+    retry.
+  - If the SQL works, the answer is written from the exact rows; otherwise it
+    falls back to document search.
+
+LangGraph flow:
+    START -> plan_sql --(SQL ok)--> generate -> END
+                  \--(no SQL)--> retrieve -> generate -> END
+
+
+-------------------------------------------------------------------------------
+4. WORKFLOW (what happens end to end)
+-------------------------------------------------------------------------------
+A) UPLOAD WORKFLOW
+   User drops a file
+     -> POST /api/upload
+     -> check the type (pdf/docx/txt/csv/xlsx) and size (max 20 MB)
+     -> extract the text -> split into chunks -> embed -> save in Atlas
+     -> (CSV/XLSX) also create the SQLite tables
+     -> save a document record (name, type, chunk count)
+     -> if any step fails, roll everything back (all-or-nothing)
+     -> the file appears in the sidebar
+
+B) QUESTION WORKFLOW
+   User types a question (optionally after selecting a file)
+     -> POST /api/query (question, conversation_id, document_id)
+     -> load the last few messages of the conversation (for follow-ups)
+     -> LangGraph runs: plan_sql -> (retrieve) -> generate
+     -> the server streams Server-Sent Events (SSE):
+          "meta"  : sources + queries (shown in the Query panel)
+          "token" : each word of the answer as it is generated
+          "done"  : message id + timing metrics
+     -> the browser shows the query panel, then the answer word by word
+     -> the message, queries and metrics are saved in MongoDB
+
+C) DASHBOARD WORKFLOW
+   GET /api/stats -> averages of time to first token, total time and
+   tokens/sec, plus document and question counts -> Recharts graphs
+
+
+-------------------------------------------------------------------------------
+5. REAL-TIME USAGE OF THIS APP
+-------------------------------------------------------------------------------
+  1. Colleges   - Students upload the syllabus, notes and circulars, and ask
+                  "When is the internal exam?" or "Explain unit 3 topic X".
+  2. HR / offices - Employees ask "How many leave days do I get?" from the
+                  handbook instead of reading 50 pages.
+  3. Business / sales - Managers upload Excel sales reports and ask "Total
+                  revenue in Q2?" or "Top 5 products by sales". SQL gives
+                  exact numbers, and no SQL knowledge is needed.
+  4. Banking / legal - Search long contracts and policies with page
+                  references for verification.
+  5. Customer support - Agents find answers in product manuals quickly.
+  6. Research   - Find facts across many research papers with citations.
+  7. Survey / form data - Upload Google Form responses (Excel) and ask "How
+                  many students chose Python?"
+
+Benefits:
+  - Saves time: answers in seconds instead of manual reading.
+  - Trustworthy: every answer is cited and shows its query.
+  - Exact numbers from spreadsheets (SQL, not AI guessing).
+  - No hallucination: it says when the answer is not in the files.
+  - Works across many files at once; the files are stored and reused.
+
+
+-------------------------------------------------------------------------------
+6. RUN COMMANDS
+-------------------------------------------------------------------------------
+Open TWO PowerShell terminals.
+
+Terminal 1 - Backend:
+    cd "C:\Storage\PROJECTS\College\NL to SQL\backend"
+    .venv\Scripts\python.exe -m uvicorn app.main:app --port 8000
+  Wait for "Application startup complete".
+  Check: http://localhost:8000/health  ->  {"status":"ok"}
+
+Terminal 2 - Frontend:
+    cd "C:\Storage\PROJECTS\College\NL to SQL\frontend"
+    npm run dev
+
+Open in the browser:  http://localhost:5173
+Stop: press Ctrl+C in each terminal.
+
+If port 8000 is busy:
+    .venv\Scripts\python.exe -m uvicorn app.main:app --port 8001
+    (frontend)  $env:VITE_API_BASE_URL="http://localhost:8001"; npm run dev
+
+First-time setup on a new computer:
+    cd backend
+    copy .env.example .env        (fill in MONGODB_URI and GROQ_API_KEY)
+    uv sync
+    cd ..\frontend
+    copy .env.example .env
+    npm install
+
+Run the tests (good to show in the viva):
+    cd backend   ->  .venv\Scripts\python.exe -m pytest -q   (135 passed)
+    cd frontend  ->  npx vitest run                          (31 passed)
+
+Demo tips:
+  - Start the backend 2 minutes early; the first question takes 10-15 s
+    while the embedding model loads.
+  - Upload one PDF (e.g. handbook.pdf) and one Excel file before the viva.
+  - Demo questions:
+      "How many leave days do employees get?"   -> PDF answer + citation
+      "What is the total revenue in Q2?"        -> SQL query + results table
+      "And in Q1?"                              -> follow-up question
+      "Who won the cricket world cup?"          -> "I couldn't find that..."
+      Select a file in the sidebar, then ask    -> that file is searched first
+
+
+-------------------------------------------------------------------------------
+7. TECHNOLOGY STACK (quick list)
+-------------------------------------------------------------------------------
+  Frontend : React 19, Vite, Tailwind CSS v4, Recharts, lucide-react
+  Backend  : Python 3.11, FastAPI, Uvicorn
+  AI / RAG : LangChain, LangGraph, ChatGroq (openai/gpt-oss-120b)
+  Embedding: HuggingFace sentence-transformers all-MiniLM-L6-v2 (384-d)
+  Database : MongoDB Atlas (Beanie ODM) + Atlas Vector Search; SQLite for
+             the SQL tables
+  Testing  : pytest (135 tests), Vitest (31 tests)
+
+
+-------------------------------------------------------------------------------
+8. EXPECTED VIVA QUESTIONS AND ANSWERS
+-------------------------------------------------------------------------------
+Q: What is RAG?
+A: Retrieval-Augmented Generation. Before the AI answers, we retrieve the
+   relevant parts of our documents and give them to the AI, so it answers
+   from real data instead of from memory.
+
+Q: Why not just upload the PDF to ChatGPT?
+A: ChatGPT forgets the file after the chat, has a size limit, may
+   hallucinate and gives no exact citations. Our app stores the files
+   permanently, searches many files at once, cites the page, shows the
+   query, computes exact numbers with SQL and refuses when the answer isn't
+   there.
+
+Q: What is an embedding?
+A: A list of numbers that represents the meaning of a text. MiniLM gives 384
+   numbers per chunk. Texts with similar meaning have vectors that are close
+   to each other.
+
+Q: What is vector search / cosine similarity?
+A: It finds the stored vectors closest to the question vector. Cosine
+   similarity measures the angle between two vectors: 1 means the same
+   meaning, 0 means unrelated.
+
+Q: Why chunk the documents?
+A: LLMs have a limited input size, and small chunks make search precise.
+   We use 1000 characters with a 150-character overlap so no sentence is
+   lost at a boundary.
+
+Q: What is LangGraph?
+A: A library for building AI workflows as a graph of steps (nodes). Our
+   nodes are plan_sql, retrieve and generate, with a condition that skips
+   retrieval when SQL already answered the question.
+
+Q: What is NL-to-SQL?
+A: Natural Language to SQL. The AI converts a question like "total revenue
+   in Q2" into SELECT SUM(revenue) FROM ... WHERE quarter='Q2'. The database
+   computes the exact answer.
+
+Q: How do you stop the AI from running dangerous SQL like DELETE?
+A: Three layers: (1) only a single SELECT/WITH statement is accepted;
+   (2) the SQLite connection is opened read-only; (3) there is a 5-second
+   time limit and a 200-row cap.
+
+Q: How do you prevent hallucination?
+A: The prompt says to answer only from the given context and to reply
+   "I couldn't find that in your documents." otherwise. Temperature is 0,
+   and every answer cites its source.
+
+Q: Why Groq? Why gpt-oss-120b instead of Llama 3?
+A: Groq runs models on LPUs, which makes answers very fast. Groq retired the
+   Llama 3 models, so we use openai/gpt-oss-120b. The model is a setting in
+   .env and can be changed.
+
+Q: Why MongoDB Atlas?
+A: It stores the documents, chats and vectors in one place, and it has
+   built-in Vector Search. The free M0 tier is enough.
+
+Q: Why SQLite for the spreadsheets?
+A: It is built into Python, needs no server, and is ideal for running exact
+   SELECT queries on the uploaded tables.
+
+Q: What is streaming / SSE?
+A: Server-Sent Events. The server sends the answer word by word as the AI
+   generates it, so the user sees text immediately instead of waiting for
+   the whole answer.
+
+Q: How do follow-up questions work?
+A: The last few messages of the conversation are sent with the new question,
+   so "And in Q1?" is understood in context.
+
+Q: What happens when a file is selected?
+A: That file is searched first (2 chunks), then the best chunks from all
+   files are added. The AI is told to prefer the selected file, but it can
+   still use other files when the selected one doesn't have the answer.
+
+Q: What metrics do you measure?
+A: Time to first token, total response time and tokens per second for every
+   answer, shown on the dashboard.
+
+Q: How did you test it?
+A: 135 backend tests (pytest) and 31 frontend tests (Vitest), plus live
+   end-to-end checks against the real Atlas database and Groq.
+
+Q: What were the challenges?
+A: (1) Groq retired Llama 3, so we switched models. (2) The speed metric was
+   wrong because the model "thinks" first, so we now measure from the start
+   of generation. (3) The network blocked Atlas DNS SRV lookups, so we used
+   the direct server address. (4) Failed uploads left partial data, so
+   uploads are now all-or-nothing.
+
+Q: Future scope?
+A: Login per user, OCR for scanned PDFs, charts from SQL results, connecting
+   to MySQL/PostgreSQL, multilingual and voice support, and cloud
+   deployment.
