@@ -30,9 +30,11 @@ async def test_without_tables_the_mongodb_query_is_reported(table_store):
     assert len(llm.calls) == 1  # no planner call when there are no tables
     [run] = meta_of(events)["queries"]
     assert run["kind"] == "mongodb"
-    assert '"$vectorSearch"' in run["query"]
-    assert '"numCandidates": 100' in run["query"] and '"limit": 4' in run["query"]
-    assert "<384 numbers from your question>" in run["query"]
+    assert run["query"].startswith("-- Atlas Vector Search")
+    assert "SELECT filename" in run["query"] and "FROM chunks" in run["query"]
+    assert "ORDER BY" in run["query"] and "LIMIT 4;" in run["query"]
+    assert "WHERE" not in run["query"]
+    assert "$vectorSearch" not in run["query"]
     assert run["columns"] == ["File", "Page", "Score", "Excerpt"]
     assert run["rows"] == [["guide.pdf", 1, 0.912, "Refunds take ten days."]]
     assert run["row_count"] == 1
@@ -153,9 +155,9 @@ async def test_selected_document_is_searched_first_then_all_documents(table_stor
     assert store.document_ids == ["docA", None]  # the selected file first, then every document
     selected_run, all_run = meta_of(events)["queries"]
     assert selected_run["label"] == "handbook.pdf (selected file)"
-    assert '"$eq": "docA"' in selected_run["query"] and '"limit": 2' in selected_run["query"]
+    assert "WHERE document_id = 'docA'" in selected_run["query"] and "LIMIT 2;" in selected_run["query"]
     assert [r[0] for r in selected_run["rows"]] == ["handbook.pdf"]
-    assert all_run["label"] == "all documents" and '"filter"' not in all_run["query"]
+    assert all_run["label"] == "all documents" and "WHERE" not in all_run["query"]
     # The answer sees the selected file's passage first, and still the best passages from other files.
     answer_prompt = llm.calls[0][-1].content
     assert answer_prompt.index("Leave is 24 days.") < answer_prompt.index("Other text")
@@ -169,7 +171,7 @@ async def test_without_a_selection_there_is_one_search_without_a_filter(table_st
     events = await collect(question="Q?", store=store, llm=scripted_llm("A."), tables=table_store)
     assert store.document_ids == [None]
     [run] = meta_of(events)["queries"]
-    assert '"filter"' not in run["query"] and run["label"] == "all documents"
+    assert "WHERE" not in run["query"] and run["label"] == "all documents"
 
 
 async def test_selected_pdf_still_lets_sql_answer_from_spreadsheets(sales_tables):

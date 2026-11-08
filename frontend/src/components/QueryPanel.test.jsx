@@ -18,7 +18,7 @@ const SQL_RUN = {
 
 const MONGO_RUN = {
   kind: "mongodb",
-  query: 'db.chunks.aggregate([{"$vectorSearch": {"index": "vector_index"}}])',
+  query: "SELECT filename AS \"File\" FROM chunks ORDER BY \"Score\" DESC LIMIT 4;",
   columns: ["File", "Page", "Score", "Excerpt"],
   rows: [["handbook.pdf", 2, 0.912, "Every full-time employee receives 24 days"]],
   row_count: 1,
@@ -38,10 +38,11 @@ describe("QueryPanel", () => {
     expect(html).toContain("2 rows");
   });
 
-  it("shows the MongoDB pipeline and the passages it returned", () => {
+  it("shows the document search as SQL and the passages it returned", () => {
     const html = render([MONGO_RUN]);
-    expect(html).toContain("MongoDB query");
-    expect(html).toContain("$vectorSearch");
+    expect(html).toContain("SQL query");
+    expect(html).not.toContain("MongoDB");
+    expect(html).toContain("FROM chunks");
     expect(html).toContain("handbook.pdf");
     expect(html).toContain("0.912");
     expect(html).toContain("1 row");
@@ -63,7 +64,7 @@ describe("QueryPanel", () => {
   it("shows a failed query's error instead of a table", () => {
     const html = render([{ ...SQL_RUN, columns: [], rows: [], row_count: 0, error: "no such column: nope" }, MONGO_RUN]);
     expect(html).toContain("no such column: nope");
-    expect(html).toContain("MongoDB query");
+    expect(html.match(/SQL query/g)).toHaveLength(2);
     expect(html.match(/<table/g)).toHaveLength(1);
   });
 

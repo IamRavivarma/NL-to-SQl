@@ -68,7 +68,7 @@ function QueryCard({ run }) {
         className="flex w-full items-center gap-2 px-3 py-2 text-left"
       >
         <Database className="size-4 shrink-0 text-accent" aria-hidden="true" />
-        <span className="text-sm font-semibold text-ink">{isSql ? "SQL query" : "MongoDB query"}</span>
+        <span className="text-sm font-semibold text-ink">SQL query</span>
         {where && <span className="min-w-0 truncate text-xs text-muted">· {where}</span>}
         <span className="tabular ml-auto shrink-0 text-xs text-muted">
           {run.error ? "failed" : rowLabel(run.row_count)}

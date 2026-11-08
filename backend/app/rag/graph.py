@@ -1,4 +1,3 @@
-import json
 import re
 import time
 from collections.abc import AsyncIterator
@@ -18,7 +17,7 @@ from app.rag.prompts import (
     SQL_FIX_PROMPT,
     SQL_PLANNER_PROMPT,
 )
-from app.rag.vector_store import OVERSAMPLING_FACTOR, TOP_K, VECTOR_INDEX_NAME, document_filter
+from app.rag.vector_store import OVERSAMPLING_FACTOR, TOP_K, VECTOR_INDEX_NAME
 from app.sql.planner import describe_schema, parse_sql_plan
 from app.sql.table_store import QueryResult, SqlError, TableInfo
 
@@ -57,24 +56,22 @@ def _snippet(text: str) -> str:
 
 
 def mongodb_query_run(hits: list[Hit], document_id: str | None = None, limit: int = TOP_K, label: str = "") -> dict:
-    """The aggregation pipeline langchain-mongodb runs for a similarity search, and the chunks it returned."""
-    vector_search = {"index": VECTOR_INDEX_NAME, "path": "embedding"}
-    if document_id:
-        vector_search["filter"] = document_filter(document_id)
-    vector_search |= {
-        "queryVector": "<384 numbers from your question>",
-        "numCandidates": limit * OVERSAMPLING_FACTOR,
-        "limit": limit,
-    }
-    pipeline = [
-        {"$vectorSearch": vector_search},
-        {"$set": {"score": {"$meta": "vectorSearchScore"}}},
-        {"$project": {"embedding": 0}},
-    ]
+    """The Atlas vector search that ran, written as the equivalent SQL, and the chunks it returned."""
+    where = f"WHERE document_id = '{document_id}'\n" if document_id else ""
+    query = (
+        f"-- Atlas Vector Search ({VECTOR_INDEX_NAME}, {limit * OVERSAMPLING_FACTOR} candidates), shown as SQL\n"
+        'SELECT filename AS "File", page AS "Page",\n'
+        '       similarity(embedding, :question_embedding) AS "Score",\n'
+        '       text AS "Excerpt"\n'
+        "FROM chunks\n"
+        f"{where}"
+        'ORDER BY "Score" DESC\n'
+        f"LIMIT {limit};"
+    )
     return {
         "kind": "mongodb",
         "label": label or "all documents",
-        "query": f"db.chunks.aggregate({json.dumps(pipeline, indent=2)})",
+        "query": query,
         "columns": ["File", "Page", "Score", "Excerpt"],
         "rows": [
             [doc.metadata["filename"], doc.metadata["page"], round(score, 3), _snippet(doc.page_content)]
