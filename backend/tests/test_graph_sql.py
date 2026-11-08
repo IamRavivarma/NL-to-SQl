@@ -129,3 +129,36 @@ async def test_displayed_rows_are_capped_at_50(table_store):
     [run] = meta_of(events)["queries"]
     assert len(run["rows"]) == 50
     assert run["row_count"] == 120 and run["truncated"] is False
+
+
+async def test_selected_document_limits_the_search_and_the_query_shows_the_filter(table_store):
+    store = FakeChunkStore(hits=[hit("Leave is 24 days.", "handbook.pdf", document_id="docA"), hit("Other", "b.pdf", document_id="docB")])
+    llm = scripted_llm("24 days [handbook.pdf p.1].")
+    events = await collect(question="Leave?", store=store, llm=llm, tables=table_store, document_id="docA")
+
+    assert store.document_ids == ["docA"]
+    [run] = meta_of(events)["queries"]
+    assert '"filter": {' in run["query"] and '"document_id": {' in run["query"] and '"$eq": "docA"' in run["query"]
+    assert [row[0] for row in run["rows"]] == ["handbook.pdf"]
+
+
+async def test_all_documents_search_has_no_filter(table_store):
+    store = FakeChunkStore(hits=[hit("x")])
+    events = await collect(question="Q?", store=store, llm=scripted_llm("A."), tables=table_store)
+    assert store.document_ids == [None]
+    assert '"filter"' not in meta_of(events)["queries"][0]["query"]
+
+
+async def test_selected_pdf_skips_sql_even_when_spreadsheets_exist(sales_tables):
+    llm = scripted_llm("24 days.")
+    events = await collect(question="Leave?", store=FakeChunkStore(hits=[hit("x")]), llm=llm, tables=sales_tables, document_id="pdf1")
+    assert len(llm.calls) == 1  # no SQL planner call: the selected file has no tables
+    assert [q["kind"] for q in meta_of(events)["queries"]] == ["mongodb"]
+
+
+async def test_selected_spreadsheet_only_offers_its_own_tables(sales_tables):
+    sales_tables.create_tables("doc2", "staff.csv", [Table(sheet=None, page=1, header=["Name"], rows=[["Ann"]])])
+    llm = scripted_llm('{"sql": "SELECT name FROM staff"}', "Ann.")
+    await collect(question="Who?", store=FakeChunkStore(), llm=llm, tables=sales_tables, document_id="doc2")
+    planner_prompt = llm.calls[0][0].content
+    assert "staff" in planner_prompt and "sales_q1" not in planner_prompt

@@ -30,6 +30,8 @@ class Message(Document):
     metrics: Metrics | None = None
     # The database queries behind the answer (SQL over spreadsheets, or the MongoDB vector search), as shown in the UI.
     queries: list[dict] = Field(default_factory=list)
+    # On a question: the file it was asked about (selected in the sidebar); None means all documents.
+    document_filename: str | None = None
     status: Literal["complete", "error"] = "complete"
     created_at: datetime = Field(default_factory=utcnow)
 

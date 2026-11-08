@@ -25,6 +25,8 @@ TITLE_CHARS = 60
 class QueryRequest(BaseModel):
     question: str = Field(max_length=2000)
     conversation_id: PydanticObjectId | None = None
+    # The file selected in the sidebar: answer only from it. None searches every document.
+    document_id: PydanticObjectId | None = None
 
     @field_validator("question")
     @classmethod
@@ -65,6 +67,12 @@ async def _save_assistant(
 
 @router.post("/query")
 async def query(request: QueryRequest, store=Depends(get_store), llm=Depends(get_llm), tables=Depends(get_tables)):
+    document = None
+    if request.document_id is not None:
+        document = await StoredDocument.get(request.document_id)
+        if document is None:
+            raise HTTPException(status_code=404, detail="Document not found")
+
     if request.conversation_id is not None:
         conversation = await Conversation.get(request.conversation_id)
         if conversation is None:
@@ -74,16 +82,22 @@ async def query(request: QueryRequest, store=Depends(get_store), llm=Depends(get
         await conversation.insert()
 
     history = await _load_history(conversation.id)
-    await Message(conversation_id=conversation.id, role="user", content=request.question).insert()
+    await Message(
+        conversation_id=conversation.id,
+        role="user",
+        content=request.question,
+        document_filename=document.filename if document else None,
+    ).insert()
 
+    document_id = str(document.id) if document else None
     return StreamingResponse(
-        _events(conversation, request.question, history, store, llm, tables),
+        _events(conversation, request.question, history, store, llm, tables, document_id),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 
-async def _events(conversation: Conversation, question: str, history, store, llm, tables=None):
+async def _events(conversation: Conversation, question: str, history, store, llm, tables=None, document_id=None):
     conversation_id = str(conversation.id)
     partial: list[str] = []
     queries: list[dict] = []
@@ -98,7 +112,13 @@ async def _events(conversation: Conversation, question: str, history, store, llm
             return
 
         async for event in stream_answer(
-            question, history, store=store, llm=llm, model_name=settings.groq_model, tables=tables
+            question,
+            history,
+            store=store,
+            llm=llm,
+            model_name=settings.groq_model,
+            tables=tables,
+            document_id=document_id,
         ):
             if event["type"] == "meta":
                 queries = event["queries"]

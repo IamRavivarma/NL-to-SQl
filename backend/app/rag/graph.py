@@ -18,7 +18,7 @@ from app.rag.prompts import (
     SQL_FIX_PROMPT,
     SQL_PLANNER_PROMPT,
 )
-from app.rag.vector_store import OVERSAMPLING_FACTOR, TOP_K, VECTOR_INDEX_NAME
+from app.rag.vector_store import OVERSAMPLING_FACTOR, TOP_K, VECTOR_INDEX_NAME, document_filter
 from app.sql.planner import describe_schema, parse_sql_plan
 from app.sql.table_store import QueryResult, SqlError, TableInfo
 
@@ -53,18 +53,18 @@ def _snippet(text: str) -> str:
     return " ".join(text.split())[:SNIPPET_CHARS]
 
 
-def mongodb_query_run(hits: list[Hit]) -> dict:
+def mongodb_query_run(hits: list[Hit], document_id: str | None = None) -> dict:
     """The aggregation pipeline langchain-mongodb runs for a similarity search, and the chunks it returned."""
+    vector_search = {"index": VECTOR_INDEX_NAME, "path": "embedding"}
+    if document_id:
+        vector_search["filter"] = document_filter(document_id)
+    vector_search |= {
+        "queryVector": "<384 numbers from your question>",
+        "numCandidates": TOP_K * OVERSAMPLING_FACTOR,
+        "limit": TOP_K,
+    }
     pipeline = [
-        {
-            "$vectorSearch": {
-                "index": VECTOR_INDEX_NAME,
-                "path": "embedding",
-                "queryVector": "<384 numbers from your question>",
-                "numCandidates": TOP_K * OVERSAMPLING_FACTOR,
-                "limit": TOP_K,
-            }
-        },
+        {"$vectorSearch": vector_search},
         {"$set": {"score": {"$meta": "vectorSearchScore"}}},
         {"$project": {"embedding": 0}},
     ]
@@ -147,7 +147,9 @@ def _content(message: AIMessage) -> str:
     return message.content if isinstance(message.content, str) else ""
 
 
-def build_graph(store, llm: BaseChatModel, tables=None):
+def build_graph(store, llm: BaseChatModel, tables=None, document_id: str | None = None):
+    """`document_id` limits both the SQL tables and the document search to one uploaded file."""
+
     async def run_sql(sql: str) -> tuple[QueryResult | None, str | None]:
         try:
             return await run_in_threadpool(tables.run_select, sql), None
@@ -155,7 +157,7 @@ def build_graph(store, llm: BaseChatModel, tables=None):
             return None, str(exc)
 
     async def plan_sql(state: RagState) -> dict:
-        catalog = await run_in_threadpool(tables.catalog) if tables is not None else []
+        catalog = await run_in_threadpool(tables.catalog, document_id) if tables is not None else []
         if not catalog:
             return {"sql_runs": [], "sql_ok": False}
         samples = {info.table_name: await run_in_threadpool(tables.sample_rows, info.table_name) for info in catalog}
@@ -179,7 +181,7 @@ def build_graph(store, llm: BaseChatModel, tables=None):
         return {"sql_runs": [sql_query_run(sql, result, error, _tables_in(sql, catalog))], "sql_ok": error is None}
 
     async def retrieve(state: RagState) -> dict:
-        hits = await run_in_threadpool(store.search, state["question"], TOP_K)
+        hits = await run_in_threadpool(store.search, state["question"], TOP_K, document_id)
         return {"hits": hits}
 
     async def generate(state: RagState) -> dict:
@@ -206,7 +208,14 @@ def build_graph(store, llm: BaseChatModel, tables=None):
 
 
 async def stream_answer(
-    question: str, history: list[tuple[str, str]], *, store, llm: BaseChatModel, model_name: str, tables=None
+    question: str,
+    history: list[tuple[str, str]],
+    *,
+    store,
+    llm: BaseChatModel,
+    model_name: str,
+    tables=None,
+    document_id: str | None = None,
 ) -> AsyncIterator[dict]:
     started = time.perf_counter()
     generation_started = started
@@ -218,7 +227,7 @@ async def stream_answer(
     parts: list[str] = []
     final: AIMessage | None = None
 
-    graph = build_graph(store, llm, tables)
+    graph = build_graph(store, llm, tables, document_id)
     async for mode, payload in graph.astream(
         {"question": question, "history": history}, stream_mode=["updates", "messages"]
     ):
@@ -233,7 +242,7 @@ async def stream_answer(
                 hits = payload["retrieve"]["hits"]
                 chunks_retrieved = len(hits)
                 sources = build_sources(hits)
-                queries = [*sql_runs, mongodb_query_run(hits)]
+                queries = [*sql_runs, mongodb_query_run(hits, document_id)]
                 generation_started = time.perf_counter()
                 yield {"type": "meta", "sources": sources, "queries": queries}
             elif "generate" in payload:

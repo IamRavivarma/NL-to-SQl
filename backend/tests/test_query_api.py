@@ -150,3 +150,27 @@ async def test_question_about_an_uploaded_csv_is_answered_with_sql(client):
     [run] = events[0][1]["queries"]
     assert (run["kind"], run["rows"]) == ("sql", [[100000]])
     assert events[0][1]["sources"] == [{"filename": "staff.csv", "page": 1, "snippet": "Rows returned by the SQL query"}]
+
+
+async def test_question_about_a_selected_document_is_limited_to_it_and_tagged(client):
+    document = StoredDocument(filename="handbook.pdf", file_type="pdf", size_bytes=1, page_count=1, chunk_count=1)
+    await document.insert()
+    store = FakeChunkStore(hits=[hit("Leave is 24 days.", "handbook.pdf", document_id=str(document.id))])
+    override(store, fake_llm("24 days [handbook.pdf p.1]."))
+
+    response = await client.post("/api/query", json={"question": "Leave?", "document_id": str(document.id)})
+    events = parse_sse(response.text)
+    assert store.document_ids == [str(document.id)]
+
+    conversation = (await client.get(f"/api/conversations/{events[0][1]['conversation_id']}")).json()
+    question, answer = conversation["messages"]
+    assert question["document_filename"] == "handbook.pdf"
+    assert answer["document_filename"] is None
+
+
+async def test_unknown_selected_document_returns_404(client):
+    await add_document()
+    override(FakeChunkStore(), fake_llm("x"))
+    response = await client.post("/api/query", json={"question": "Q?", "document_id": "650000000000000000000000"})
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Document not found"

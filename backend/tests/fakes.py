@@ -15,6 +15,7 @@ class FakeChunkStore:
         self.added: list[tuple[str, dict]] = []
         self.deleted: list[str] = []
         self.queries: list[str] = []
+        self.document_ids: list[str | None] = []
 
     def add_chunks(self, texts, metadatas):
         if self.fail_on_add:
@@ -27,13 +28,15 @@ class FakeChunkStore:
         self.deleted.append(document_id)
         return 1
 
-    def search(self, query, k=4):
+    def search(self, query, k=4, document_id=None):
         self.queries.append(query)
-        return self.hits[:k]
+        self.document_ids.append(document_id)
+        hits = [h for h in self.hits if document_id is None or h[0].metadata["document_id"] == document_id]
+        return hits[:k]
 
 
-def hit(text, filename="guide.pdf", page=1, score=0.9):
-    metadata = {"filename": filename, "page": page, "document_id": "doc1", "chunk_index": 0}
+def hit(text, filename="guide.pdf", page=1, score=0.9, document_id="doc1"):
+    metadata = {"filename": filename, "page": page, "document_id": document_id, "chunk_index": 0}
     return Document(page_content=text, metadata=metadata), score
 
 

@@ -21,6 +21,7 @@ def serialize_message(message: Message) -> dict:
         "sources": [source.model_dump() for source in message.sources],
         "metrics": message.metrics.model_dump() if message.metrics else None,
         "queries": message.queries,
+        "document_filename": message.document_filename,
         "status": message.status,
         "created_at": message.created_at.isoformat(),
     }
